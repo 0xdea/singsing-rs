@@ -3,8 +3,8 @@
 // Standard library imports.
 use std::env;
 use std::ffi::{OsStr, OsString};
-use std::process::ExitCode;
 use std::path::Path;
+use std::process::ExitCode;
 
 // External crate imports.
 
@@ -22,7 +22,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 
 fn main() -> ExitCode {
-    eprintln!("{PROGRAM} {VERSION} - TODO");
+    eprintln!("{PROGRAM} {VERSION} - A blazing fast port scanning library");
     eprintln!("Copyright (c) 2026 {AUTHORS}");
     eprintln!();
 
@@ -43,12 +43,12 @@ fn main() -> ExitCode {
     };
 
     // Let's do it.
-    match singsing-rs::run(action)
-    {
+    match singsing_rs::run(action.to_str().unwrap()) {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
-        eprintln!("[!] Error: {err:#}");
-        ExitCode::FAILURE
+            eprintln!("[!] Error: {err:#}");
+            ExitCode::FAILURE
+        }
     }
 }
 
