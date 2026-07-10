@@ -27,27 +27,27 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            name: {{project-name}}-linux-x86_64.tar.gz
+            name: singsing-rs-linux-x86_64.tar.gz
 
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            name: {{project-name}}-linux-aarch64.tar.gz
+            name: singsing-rs-linux-aarch64.tar.gz
 
           - target: x86_64-apple-darwin
             os: macOS-latest
-            name: {{project-name}}-darwin-x86_64.tar.gz
+            name: singsing-rs-darwin-x86_64.tar.gz
 
           - target: aarch64-apple-darwin
             os: macOS-latest
-            name: {{project-name}}-darwin-aarch64.tar.gz
+            name: singsing-rs-darwin-aarch64.tar.gz
 
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            name: {{project-name}}-windows-x86_64.tar.gz
+            name: singsing-rs-windows-x86_64.tar.gz
 
           - target: aarch64-pc-windows-msvc
             os: windows-latest
-            name: {{project-name}}-windows-aarch64.tar.gz
+            name: singsing-rs-windows-aarch64.tar.gz
 
     steps:
       - name: checkout
@@ -87,9 +87,9 @@ jobs:
         run: |
           cd "target/$TARGET/release"
           if [ "$RUNNER_OS" = "Windows" ]; then
-            tar czf "../../../$NAME" {{project-name}}.exe
+            tar czf "../../../$NAME" singsing-rs.exe
           else
-            tar czf "../../../$NAME" {{project-name}}
+            tar czf "../../../$NAME" singsing-rs
           fi
       - name: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
