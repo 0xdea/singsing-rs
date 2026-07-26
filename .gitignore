@@ -1,6 +1,10 @@
-/target
-.cargo-ok
-.DS_Store
-.idea
-.zed
+# Build artifacts
+/target/
+/extension.wasm
 
+# OS
+.DS_Store
+
+# Editors
+.idea/
+.zed/
