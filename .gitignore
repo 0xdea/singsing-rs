@@ -1,6 +1,5 @@
 # Build artifacts
 /target/
-/extension.wasm
 
 # OS
 .DS_Store
