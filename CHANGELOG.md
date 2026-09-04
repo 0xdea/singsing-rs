@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- TODO
+- Linux IPv4 SYN scanner library and `zucca` command.
+- CIDR target, port range, and `/etc/services` parsing.
 
 ## [0.1.1] - TODO
 
