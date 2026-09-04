@@ -9,25 +9,29 @@
 [![build](https://github.com/0xdea/singsing-rs/actions/workflows/build.yml/badge.svg)](https://github.com/0xdea/singsing-rs/actions/workflows/build.yml)
 [![doc](https://github.com/0xdea/singsing-rs/actions/workflows/doc.yml/badge.svg)](https://github.com/0xdea/singsing-rs/actions/workflows/doc.yml)
 
-> "It's important to be quotable."
->
-> -- Halvar Flake
+An IPv4 SYN scanning library and a Linux port of the
+[`zucca`](https://github.com/inode-/singsing/blob/master/src/examples/zucca.c)
+scanner from the original C singsing project.
 
-TODO
-
-![](https://raw.githubusercontent.com/0xdea/singsing-rs/master/.img/screen01.png)
+The scanner creates raw IPv4/TCP packets, sends bandwidth-limited SYN probes,
+and validates response acknowledgement numbers before reporting SYN/ACK
+responses as open or RST responses as closed. Hosts that do not reply are
+treated as filtered or unreachable and are not printed.
 
 ## Features
 
-- TODO
-
-## Blog post
-
-- TODO
+- IPv4 hosts and CIDR ranges
+- Comma-separated ports and inclusive port ranges
+- TCP ports from `/etc/services` when `--ports` is omitted
+- Linux interface address discovery
+- Configurable bandwidth and response timeout
+- Optional reporting of closed ports
+- Duplicate response suppression
 
 ## See also
 
-- TODO
+- [The original singsing project](https://github.com/inode-/singsing)
+- [The original zucca scanner](https://github.com/inode-/singsing/blob/master/src/examples/zucca.c)
 
 ## Installing
 
@@ -55,60 +59,56 @@ cargo build --release
 
 ## Configuration
 
-> [!NOTE]
-> Useful information
-
-> [!TIP]
-> Helpful advice
-
-> [!IMPORTANT]
-> Key information
-
 > [!WARNING]
-> Urgent concern
+> Only scan systems you own or have explicit permission to test.
 
-> [!CAUTION]
-> Potential risk or danger
+`zucca` uses a raw transport socket. Run it as root, or grant the installed
+binary only the capability it needs:
+
+```sh
+sudo setcap cap_net_raw=eip "$(command -v zucca)"
+```
+
+Choose an interface whose IPv4 address can route to the targets. List available
+interfaces with `ip -brief address`.
 
 ## Usage
 
-Run singsing-rs as follows:
+Scan selected ports on one host:
 
 ```sh
-TODO
+sudo zucca -h 192.0.2.10 -i eth0 -p 22,80,443
 ```
 
-## Examples
-
-TODO:
+Scan a subnet and include closed ports:
 
 ```sh
-TODO
+sudo zucca -h 192.0.2.0/24 -i eth0 -p 1-1024 -c
 ```
 
-TODO:
+Use TCP entries from `/etc/services`, limit the send rate to 100 KiB/s, and
+wait five seconds for late replies:
 
 ```sh
-TODO
+sudo zucca -h 192.0.2.10 -i eth0 -b 100 -t 5
 ```
+
+Run `zucca --help` for the complete command-line reference.
+
+Library users can construct a [`ScanConfig`](https://docs.rs/singsing-rs/latest/singsing_rs/struct.ScanConfig.html)
+and call [`scan`](https://docs.rs/singsing-rs/latest/singsing_rs/fn.scan.html).
 
 ## Compatibility
 
-Tested on:
-
-- Apple macOS Tahoe 26.4.1
-- Ubuntu Linux 24.04.4 LTS
-- Microsoft Windows 11 23H2
-- TODO
+The scanner is intentionally Linux-focused. The release build and test suite
+are verified on Ubuntu Linux 24.04 (`aarch64`).
 
 ## Credits
 
-- TODO
+- Maurizio Agazzini (inode), author of the original singsing and zucca code
+- Marco Ivaldi (0xdea), Rust port
 
 ## Changelog
 
 - [CHANGELOG.md](https://github.com/0xdea/singsing-rs/blob/master/CHANGELOG.md)
 
-## TODO
-
-- TODO
