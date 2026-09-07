@@ -36,7 +36,7 @@ struct Arguments {
     show_closed: bool,
 
     /// Seconds to wait for replies after sending the final probe.
-    #[arg(short = 't', long, default_value_t = 3)]
+    #[arg(short = 't', long, default_value_t = 10)]
     timeout: u64,
 
     /// Print command help.

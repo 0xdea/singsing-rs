@@ -72,7 +72,7 @@ impl ScanConfig {
             ports,
             source,
             bandwidth_kib: 15,
-            timeout: Duration::from_secs(3),
+            timeout: Duration::from_secs(10),
             show_closed: false,
         }
     }

@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CIDR target, port range, and `/etc/services` parsing.
 - Cargo workspace separating the reusable library from the scanner binary.
 
+### Changed
+
+- Increased the default response timeout from 3 to 10 seconds.
+
 ## [0.1.1] - TODO
 
 ### Added
