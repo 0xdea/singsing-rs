@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Increased the default response timeout from 3 to 10 seconds.
+- Increased the default response timeout from 3 to 30 seconds.
 
 ## [0.1.1] - TODO
 

@@ -38,7 +38,7 @@ struct Arguments {
     show_closed: bool,
 
     /// Seconds to wait for replies after sending the final probe.
-    #[arg(short = 't', long, default_value_t = 10)]
+    #[arg(short = 't', long, default_value_t = 30)]
     timeout: u64,
 
     /// Stream tagged results and print progress every minute.
@@ -169,7 +169,7 @@ mod tests {
             Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "-v"])?;
 
         assert!(arguments.verbose);
-        assert_eq!(arguments.timeout, 10);
+        assert_eq!(arguments.timeout, 30);
         Ok(())
     }
 }
