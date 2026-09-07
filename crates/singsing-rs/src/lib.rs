@@ -23,7 +23,7 @@ use pnet::packet::{MutablePacket, Packet};
 use pnet::transport::{TransportChannelType, ipv4_packet_iter, transport_channel};
 
 const PACKET_LEN: usize = 40;
-const MAX_PROBES: usize = 16_000_000;
+const MAX_PROBES: usize = 16_777_214;
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(60);
 
 /// The state inferred from a TCP response.
@@ -277,7 +277,10 @@ pub fn scan_with_callbacks(
         .checked_mul(config.ports.len())
         .ok_or_else(|| anyhow!("scan size overflow"))?;
     if probe_count > MAX_PROBES {
-        bail!("scan contains {probe_count} probes; maximum is {MAX_PROBES}");
+        bail!(
+            "scan contains {probe_count} probes; maximum is {MAX_PROBES} \
+             (one port on a /8 or all 65,535 ports on a /24); split larger scans"
+        );
     }
 
     let source_port = source_port();
@@ -558,5 +561,10 @@ mod tests {
             progress.estimated_remaining(),
             Some(Duration::from_secs(180))
         );
+    }
+
+    #[test]
+    fn probe_limit_accommodates_single_port_slash_8() {
+        assert_eq!(MAX_PROBES, 16_777_214);
     }
 }

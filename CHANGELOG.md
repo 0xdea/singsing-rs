@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Increased the default response timeout from 3 to 30 seconds.
+- Increased the scan limit to 16,777,214 probes so either a single-port IPv4
+  `/8` scan or a full-port `/24` scan fits.
 
 ## [0.1.1] - TODO
 

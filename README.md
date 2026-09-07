@@ -92,6 +92,15 @@ sudo setcap cap_net_raw=eip "$(command -v zucchini)"
 Choose an interface whose IPv4 address can route to the targets. List available
 interfaces with `ip -brief address`.
 
+### Scan size limit
+
+A single scan is limited to 16,777,214 host/port pairs. This accommodates
+either one TCP port across all usable addresses of an IPv4 `/8`, or all 65,535
+TCP ports across the 254 usable addresses of a `/24`. Full-port scans of
+networks larger than `/24` exceed the limit and must be split into `/24` or
+smaller scans. Larger networks can be scanned when the selected port count
+keeps the total number of host/port pairs within the limit.
+
 ## Usage
 
 Scan selected ports on one host:
