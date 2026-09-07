@@ -7,7 +7,6 @@
 //! root or the `CAP_NET_RAW` capability.
 
 use std::collections::{HashMap, HashSet};
-use std::io;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -199,6 +198,22 @@ pub fn ports_from_services(path: impl AsRef<std::path::Path>) -> Result<Vec<u16>
 /// Returns an error for an empty or excessively large scan, invalid bandwidth,
 /// raw socket permission failures, packet send failures, or receiver failures.
 pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>> {
+    scan_with_callback(config, |_| Ok(()))
+}
+
+/// Executes a SYN scan and calls `on_result` as each response arrives.
+///
+/// Results are still returned in sorted order after the scan. The callback is
+/// useful for interactive clients that need immediate per-result feedback.
+///
+/// # Errors
+///
+/// Returns the same errors as [`scan`], along with errors returned by
+/// `on_result`.
+pub fn scan_with_callback(
+    config: &ScanConfig,
+    mut on_result: impl FnMut(ScanResult) -> Result<()> + Send + 'static,
+) -> Result<Vec<ScanResult>> {
     if config.targets.is_empty() || config.ports.is_empty() {
         bail!("at least one target and one port are required");
     }
@@ -239,15 +254,15 @@ pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>> {
     let timeout = config.timeout;
     let show_closed = config.show_closed;
     let receive_thread = thread::spawn(move || {
-        receive(
-            &mut receiver,
-            &receiver_expected,
+        let receive_config = ReceiveConfig {
+            expected: &receiver_expected,
             source,
             source_port,
             show_closed,
-            &receiver_done,
+            done: &receiver_done,
             timeout,
-        )
+        };
+        receive(&mut receiver, &receive_config, &mut on_result)
     });
 
     let bytes_per_second = config
@@ -340,23 +355,28 @@ fn syn_packet(
     bytes
 }
 
-fn receive(
-    receiver: &mut pnet::transport::TransportReceiver,
-    expected: &HashMap<(Ipv4Addr, u16), u32>,
+struct ReceiveConfig<'a> {
+    expected: &'a HashMap<(Ipv4Addr, u16), u32>,
     source: Ipv4Addr,
     source_port: u16,
     show_closed: bool,
-    done: &AtomicBool,
+    done: &'a AtomicBool,
     timeout: Duration,
-) -> io::Result<Vec<ScanResult>> {
+}
+
+fn receive(
+    receiver: &mut pnet::transport::TransportReceiver,
+    config: &ReceiveConfig<'_>,
+    on_result: &mut impl FnMut(ScanResult) -> Result<()>,
+) -> Result<Vec<ScanResult>> {
     let mut iterator = ipv4_packet_iter(receiver);
     let mut results = Vec::new();
     let mut seen = HashSet::new();
     let mut deadline = None;
 
     loop {
-        if done.load(Ordering::Acquire) && deadline.is_none() {
-            deadline = Some(Instant::now() + timeout);
+        if config.done.load(Ordering::Acquire) && deadline.is_none() {
+            deadline = Some(Instant::now() + config.timeout);
         }
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             break;
@@ -365,20 +385,23 @@ fn receive(
             .and_then(|deadline| deadline.checked_duration_since(Instant::now()))
             .unwrap_or(Duration::from_millis(100))
             .min(Duration::from_millis(100));
-        let Some((ipv4, _)) = iterator.next_with_timeout(wait)? else {
+        let Some((ipv4, _)) = iterator
+            .next_with_timeout(wait)
+            .context("failed to receive raw packet")?
+        else {
             continue;
         };
-        if ipv4.get_destination() != source {
+        if ipv4.get_destination() != config.source {
             continue;
         }
         let Some(tcp) = TcpPacket::new(ipv4.payload()) else {
             continue;
         };
         let key = (ipv4.get_source(), tcp.get_source());
-        let Some(sequence) = expected.get(&key) else {
+        let Some(sequence) = config.expected.get(&key) else {
             continue;
         };
-        if tcp.get_destination() != source_port
+        if tcp.get_destination() != config.source_port
             || tcp.get_acknowledgement() != sequence.wrapping_add(1)
             || !seen.insert(key)
         {
@@ -387,16 +410,18 @@ fn receive(
         let flags = tcp.get_flags();
         let state = if flags & (TcpFlags::SYN | TcpFlags::ACK) == TcpFlags::SYN | TcpFlags::ACK {
             PortState::Open
-        } else if flags & TcpFlags::RST != 0 && show_closed {
+        } else if flags & TcpFlags::RST != 0 && config.show_closed {
             PortState::Closed
         } else {
             continue;
         };
-        results.push(ScanResult {
+        let result = ScanResult {
             host: key.0,
             port: key.1,
             state,
-        });
+        };
+        on_result(result)?;
+        results.push(result);
     }
     Ok(results)
 }

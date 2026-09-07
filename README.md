@@ -26,6 +26,7 @@ treated as filtered or unreachable and are not printed.
 - TCP ports from `/etc/services` when `--ports` is omitted
 - Linux interface address discovery
 - Configurable bandwidth and response timeout
+- Immediate per-result feedback with `-v`/`--verbose`
 - Optional reporting of closed ports
 - Duplicate response suppression
 
@@ -100,6 +101,13 @@ sudo zucchini -h 192.0.2.10 -i eth0 -b 100 -t 5
 ```
 
 Run `zucchini --help` for the complete command-line reference.
+
+Use `-v` or `--verbose` to disable result buffering and print each response as
+soon as it arrives:
+
+```sh
+sudo zucchini -h 192.0.2.0/24 -i eth0 -p 22,80,443 --verbose
+```
 
 Library users can construct a [`ScanConfig`](https://docs.rs/singsing-rs/latest/singsing_rs/struct.ScanConfig.html)
 and call [`scan`](https://docs.rs/singsing-rs/latest/singsing_rs/fn.scan.html).

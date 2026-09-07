@@ -1,12 +1,14 @@
 //! Linux IPv4 SYN scanner command.
 
+use std::io::{self, Write};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use singsing_rs::{
-    PortState, ScanConfig, interface_ipv4, parse_ports, parse_targets, ports_from_services, scan,
+    PortState, ScanConfig, ScanResult, interface_ipv4, parse_ports, parse_targets,
+    ports_from_services, scan, scan_with_callback,
 };
 
 const PROGRAM: &str = "zucchini";
@@ -38,6 +40,10 @@ struct Arguments {
     /// Seconds to wait for replies after sending the final probe.
     #[arg(short = 't', long, default_value_t = 10)]
     timeout: u64,
+
+    /// Print and flush each result as soon as it is received.
+    #[arg(short = 'v', long)]
+    verbose: bool,
 
     /// Print command help.
     #[arg(long, action = clap::ArgAction::Help)]
@@ -84,16 +90,46 @@ fn run() -> Result<()> {
         arguments.interface
     );
     let started = Instant::now();
-    for result in scan(&config)? {
-        let state = match result.state {
-            PortState::Open => "open",
-            PortState::Closed => "closed",
-        };
-        println!("zucchini {state} {}:{}", result.host, result.port);
+    if arguments.verbose {
+        scan_with_callback(&config, |result| write_result(result, true))?;
+    } else {
+        for result in scan(&config)? {
+            write_result(result, false)?;
+        }
     }
     eprintln!(
         "{probes} ports scanned in {:.1} seconds",
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+fn write_result(result: ScanResult, flush: bool) -> Result<()> {
+    let state = match result.state {
+        PortState::Open => "open",
+        PortState::Closed => "closed",
+    };
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    writeln!(output, "zucchini {state} {}:{}", result.host, result.port)
+        .context("failed to write scan result")?;
+    if flush {
+        output.flush().context("failed to flush scan result")?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_verbose_option() -> Result<()> {
+        let arguments =
+            Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "-v"])?;
+
+        assert!(arguments.verbose);
+        assert_eq!(arguments.timeout, 10);
+        Ok(())
+    }
 }

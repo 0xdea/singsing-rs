@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `singsing-rs` SYN scanning library and `zucchini` Linux command.
 - CIDR target, port range, and `/etc/services` parsing.
 - Cargo workspace separating the reusable library from the scanner binary.
+- `-v`/`--verbose` streaming per-result output.
 
 ### Changed
 
