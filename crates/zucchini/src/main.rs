@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use singsing_rs::{
-    PortState, ScanConfig, ScanResult, interface_ipv4, parse_ports, parse_targets,
-    ports_from_services, scan, scan_with_callback,
+    PortState, ScanConfig, ScanProgress, ScanResult, interface_ipv4, parse_ports, parse_targets,
+    ports_from_services, scan, scan_with_callbacks,
 };
 
 const PROGRAM: &str = "zucchini";
@@ -41,7 +41,7 @@ struct Arguments {
     #[arg(short = 't', long, default_value_t = 10)]
     timeout: u64,
 
-    /// Print and flush each result as soon as it is received.
+    /// Stream tagged results and print progress every minute.
     #[arg(short = 'v', long)]
     verbose: bool,
 
@@ -90,12 +90,23 @@ fn run() -> Result<()> {
         arguments.interface
     );
     let started = Instant::now();
-    if arguments.verbose {
-        scan_with_callback(&config, |result| write_result(result, true))?;
+    let results = if arguments.verbose {
+        scan_with_callbacks(
+            &config,
+            |result| write_result(result, true, true),
+            write_progress,
+        )?
     } else {
-        for result in scan(&config)? {
-            write_result(result, false)?;
-        }
+        scan(&config)?
+    };
+    if arguments.verbose {
+        let stdout = io::stdout();
+        let mut output = stdout.lock();
+        writeln!(output, "\nFinal scan results:")
+            .context("failed to write final results heading")?;
+    }
+    for result in results {
+        write_result(result, false, false)?;
     }
     eprintln!(
         "{probes} ports scanned in {:.1} seconds",
@@ -104,18 +115,47 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-fn write_result(result: ScanResult, flush: bool) -> Result<()> {
+fn write_result(result: ScanResult, verbose: bool, flush: bool) -> Result<()> {
     let state = match result.state {
         PortState::Open => "open",
         PortState::Closed => "closed",
     };
     let stdout = io::stdout();
     let mut output = stdout.lock();
-    writeln!(output, "zucchini {state} {}:{}", result.host, result.port)
-        .context("failed to write scan result")?;
+    if verbose {
+        writeln!(
+            output,
+            "[verbose] zucchini {state} {}:{}",
+            result.host, result.port
+        )
+        .context("failed to write verbose scan result")?;
+    } else {
+        writeln!(output, "zucchini {state} {}:{}", result.host, result.port)
+            .context("failed to write scan result")?;
+    }
     if flush {
         output.flush().context("failed to flush scan result")?;
     }
+    Ok(())
+}
+
+fn write_progress(progress: ScanProgress) -> Result<()> {
+    let remaining = progress.estimated_remaining().map_or_else(
+        || "unknown".to_owned(),
+        |time| format!("{}s", time.as_secs()),
+    );
+    let stderr = io::stderr();
+    let mut output = stderr.lock();
+    writeln!(
+        output,
+        "[verbose] stats: {}% ({}/{} probes), {}s elapsed, {remaining} remaining",
+        progress.percent(),
+        progress.probes_sent,
+        progress.total_probes,
+        progress.elapsed.as_secs(),
+    )
+    .context("failed to write scan progress")?;
+    output.flush().context("failed to flush scan progress")?;
     Ok(())
 }
 

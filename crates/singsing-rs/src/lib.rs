@@ -24,6 +24,7 @@ use pnet::transport::{TransportChannelType, ipv4_packet_iter, transport_channel}
 
 const PACKET_LEN: usize = 40;
 const MAX_PROBES: usize = 16_000_000;
+const PROGRESS_INTERVAL: Duration = Duration::from_secs(60);
 
 /// The state inferred from a TCP response.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -43,6 +44,39 @@ pub struct ScanResult {
     pub port: u16,
     /// The inferred port state.
     pub state: PortState,
+}
+
+/// Sending progress reported during a scan.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ScanProgress {
+    /// Number of probes sent so far.
+    pub probes_sent: usize,
+    /// Total number of probes in the scan.
+    pub total_probes: usize,
+    /// Time elapsed since sending began.
+    pub elapsed: Duration,
+}
+
+impl ScanProgress {
+    /// Returns the integer completion percentage.
+    #[must_use]
+    pub const fn percent(self) -> usize {
+        if self.total_probes == 0 {
+            return 0;
+        }
+        self.probes_sent.saturating_mul(100) / self.total_probes
+    }
+
+    /// Estimates the time required to send the remaining probes.
+    #[must_use]
+    pub fn estimated_remaining(self) -> Option<Duration> {
+        let sent = u32::try_from(self.probes_sent).ok()?;
+        let remaining = u32::try_from(self.total_probes.saturating_sub(self.probes_sent)).ok()?;
+        if sent == 0 {
+            return None;
+        }
+        self.elapsed.checked_mul(remaining)?.checked_div(sent)
+    }
 }
 
 /// Configuration for one SYN scan.
@@ -198,7 +232,7 @@ pub fn ports_from_services(path: impl AsRef<std::path::Path>) -> Result<Vec<u16>
 /// Returns an error for an empty or excessively large scan, invalid bandwidth,
 /// raw socket permission failures, packet send failures, or receiver failures.
 pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>> {
-    scan_with_callback(config, |_| Ok(()))
+    scan_with_callbacks(config, |_| Ok(()), |_| Ok(()))
 }
 
 /// Executes a SYN scan and calls `on_result` as each response arrives.
@@ -212,7 +246,24 @@ pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>> {
 /// `on_result`.
 pub fn scan_with_callback(
     config: &ScanConfig,
+    on_result: impl FnMut(ScanResult) -> Result<()> + Send + 'static,
+) -> Result<Vec<ScanResult>> {
+    scan_with_callbacks(config, on_result, |_| Ok(()))
+}
+
+/// Executes a SYN scan with callbacks for results and sending progress.
+///
+/// `on_result` runs as each response arrives. `on_progress` runs approximately
+/// once per minute while probes are being sent.
+///
+/// # Errors
+///
+/// Returns the same errors as [`scan`], along with errors returned by either
+/// callback.
+pub fn scan_with_callbacks(
+    config: &ScanConfig,
     mut on_result: impl FnMut(ScanResult) -> Result<()> + Send + 'static,
+    mut on_progress: impl FnMut(ScanProgress) -> Result<()>,
 ) -> Result<Vec<ScanResult>> {
     if config.targets.is_empty() || config.ports.is_empty() {
         bail!("at least one target and one port are required");
@@ -272,8 +323,10 @@ pub fn scan_with_callback(
     let packets_per_second = (bytes_per_second / 40).max(1);
     let interval = Duration::from_nanos(1_000_000_000_u64 / packets_per_second);
     let mut next_send = Instant::now();
+    let started = next_send;
+    let mut next_progress = started + PROGRESS_INTERVAL;
     let send_result = (|| -> Result<()> {
-        for (&(host, port), &sequence) in expected.iter() {
+        for (index, (&(host, port), &sequence)) in expected.iter().enumerate() {
             let packet = syn_packet(config.source, host, source_port, port, sequence);
             let ipv4_packet = MutableIpv4Packet::owned(packet)
                 .ok_or_else(|| anyhow!("failed to construct IPv4 packet"))?;
@@ -283,6 +336,15 @@ pub fn scan_with_callback(
             next_send += interval;
             if let Some(delay) = next_send.checked_duration_since(Instant::now()) {
                 thread::sleep(delay);
+            }
+            let now = Instant::now();
+            if now >= next_progress {
+                on_progress(ScanProgress {
+                    probes_sent: index + 1,
+                    total_probes: probe_count,
+                    elapsed: now.duration_since(started),
+                })?;
+                next_progress = now + PROGRESS_INTERVAL;
             }
         }
         Ok(())
@@ -481,5 +543,20 @@ mod tests {
         );
         assert_eq!(tcp.get_destination(), 443);
         assert_eq!(tcp.get_flags(), TcpFlags::SYN);
+    }
+
+    #[test]
+    fn estimates_scan_progress() {
+        let progress = ScanProgress {
+            probes_sent: 25,
+            total_probes: 100,
+            elapsed: Duration::from_secs(60),
+        };
+
+        assert_eq!(progress.percent(), 25);
+        assert_eq!(
+            progress.estimated_remaining(),
+            Some(Duration::from_secs(180))
+        );
     }
 }
