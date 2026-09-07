@@ -13,6 +13,9 @@ use singsing_rs::{
 };
 
 const PROGRAM: &str = "zucchini";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
+const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 
 /// Linux IPv4 SYN scanner based on singsing's zucca example.
 #[derive(Debug, Parser)]
@@ -66,6 +69,7 @@ fn run() -> Result<()> {
     if arguments.timeout == 0 {
         bail!("timeout must be greater than zero");
     }
+    write_banner()?;
     let targets = parse_targets(&arguments.host)?;
     let ports = arguments
         .ports
@@ -85,11 +89,17 @@ fn run() -> Result<()> {
         .len()
         .checked_mul(config.ports.len())
         .context("scan size overflow")?;
-    eprintln!(
-        "zucchini {} - scanning {probes} host/port pairs via {} ({source})",
-        env!("CARGO_PKG_VERSION"),
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    writeln!(
+        output,
+        "Scanning {probes} host/port pairs via {} ({source})...",
         arguments.interface
-    );
+    )
+    .context("failed to write scan summary")?;
+    output.flush().context("failed to flush scan summary")?;
+    drop(output);
+
     let started = Instant::now();
     let results = if arguments.verbose {
         scan_with_callbacks(
@@ -100,12 +110,10 @@ fn run() -> Result<()> {
     } else {
         scan(&config)?
     };
-    if arguments.verbose {
-        let stdout = io::stdout();
-        let mut output = stdout.lock();
-        writeln!(output, "\nFinal scan results:")
-            .context("failed to write final results heading")?;
-    }
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    writeln!(output, "\nScan results:").context("failed to write results heading")?;
+    drop(output);
     for result in results {
         write_result(result, false, false)?;
     }
@@ -113,6 +121,18 @@ fn run() -> Result<()> {
         "{probes} ports scanned in {:.1} seconds",
         started.elapsed().as_secs_f64()
     );
+    Ok(())
+}
+
+fn write_banner() -> Result<()> {
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    writeln!(output, "{PROGRAM} {VERSION} - {DESCRIPTION}")
+        .context("failed to write program banner")?;
+    writeln!(output, "Copyright (c) 2026 {AUTHORS}")
+        .context("failed to write program copyright")?;
+    writeln!(output).context("failed to write program banner spacing")?;
+    output.flush().context("failed to flush program banner")?;
     Ok(())
 }
 
@@ -168,6 +188,7 @@ mod tests {
 
         assert!(arguments.verbose);
         assert_eq!(arguments.timeout, 30);
+        assert_eq!(DESCRIPTION, "A blazing fast Linux IPv4 port scanner");
         Ok(())
     }
 }

@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `-v`/`--verbose` tagged streaming results and per-minute progress statistics,
   including a local date/time ETA, followed by a separate, clearly introduced
   complete buffered output.
+- Scanner banner and consistently separated final scan results.
 
 ### Changed
 

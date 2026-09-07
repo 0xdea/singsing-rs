@@ -19,6 +19,19 @@ and validates response acknowledgement numbers before reporting SYN/ACK
 responses as open or RST responses as closed. Hosts that do not reply are
 treated as filtered or unreachable and are not printed.
 
+Typical output begins with the scanner banner and keeps the final result list
+under a separate heading:
+
+```text
+zucchini 0.1.0 - A blazing fast Linux IPv4 port scanner
+Copyright (c) 2026 Marco Ivaldi <raptor@0xdeadbeef.info>
+
+Scanning 3 host/port pairs via eth0 (192.0.2.1)...
+
+Scan results:
+open 198.51.100.10:443
+```
+
 ## Features
 
 - IPv4 hosts and CIDR ranges
