@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CIDR target, port range, and `/etc/services` parsing.
 - Cargo workspace separating the reusable library from the scanner binary.
 - `-v`/`--verbose` tagged streaming results and per-minute progress statistics,
-  followed by a separate, clearly introduced complete buffered output.
+  including a local date/time ETA, followed by a separate, clearly introduced
+  complete buffered output.
 
 ### Changed
 

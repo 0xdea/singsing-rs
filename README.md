@@ -103,9 +103,9 @@ sudo zucchini -h 192.0.2.10 -i eth0 -b 100 -t 5
 Run `zucchini --help` for the complete command-line reference.
 
 Use `-v` or `--verbose` to print tagged responses as soon as they arrive and
-progress statistics every minute. The complete sorted results are still
-printed normally under a separate `Final scan results:` heading when the scan
-finishes:
+progress statistics with a local date/time ETA every minute. The complete
+sorted results are still printed normally under a separate
+`Final scan results:` heading when the scan finishes:
 
 ```sh
 sudo zucchini -h 192.0.2.0/24 -i eth0 -p 22,80,443 --verbose

@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use chrono::{Duration as ChronoDuration, Local};
 use clap::Parser;
 use singsing_rs::{
     PortState, ScanConfig, ScanProgress, ScanResult, interface_ipv4, parse_ports, parse_targets,
@@ -123,14 +124,10 @@ fn write_result(result: ScanResult, verbose: bool, flush: bool) -> Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
     if verbose {
-        writeln!(
-            output,
-            "[verbose] zucchini {state} {}:{}",
-            result.host, result.port
-        )
-        .context("failed to write verbose scan result")?;
+        writeln!(output, "[verbose] {state} {}:{}", result.host, result.port)
+            .context("failed to write verbose scan result")?;
     } else {
-        writeln!(output, "zucchini {state} {}:{}", result.host, result.port)
+        writeln!(output, "{state} {}:{}", result.host, result.port)
             .context("failed to write scan result")?;
     }
     if flush {
@@ -140,19 +137,20 @@ fn write_result(result: ScanResult, verbose: bool, flush: bool) -> Result<()> {
 }
 
 fn write_progress(progress: ScanProgress) -> Result<()> {
-    let remaining = progress.estimated_remaining().map_or_else(
-        || "unknown".to_owned(),
-        |time| format!("{}s", time.as_secs()),
-    );
+    let eta = progress
+        .estimated_remaining()
+        .and_then(|remaining| ChronoDuration::from_std(remaining).ok())
+        .and_then(|remaining| Local::now().checked_add_signed(remaining))
+        .map_or_else(
+            || "unknown".to_owned(),
+            |eta| eta.format("%a %Y-%m-%d %H:%M:%S %Z").to_string(),
+        );
     let stderr = io::stderr();
     let mut output = stderr.lock();
     writeln!(
         output,
-        "[verbose] stats: {}% ({}/{} probes), {}s elapsed, {remaining} remaining",
+        "[verbose] stats: {}% done, ETA {eta}",
         progress.percent(),
-        progress.probes_sent,
-        progress.total_probes,
-        progress.elapsed.as_secs(),
     )
     .context("failed to write scan progress")?;
     output.flush().context("failed to flush scan progress")?;
