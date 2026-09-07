@@ -9,9 +9,10 @@
 [![build](https://github.com/0xdea/singsing-rs/actions/workflows/build.yml/badge.svg)](https://github.com/0xdea/singsing-rs/actions/workflows/build.yml)
 [![doc](https://github.com/0xdea/singsing-rs/actions/workflows/doc.yml/badge.svg)](https://github.com/0xdea/singsing-rs/actions/workflows/doc.yml)
 
-An IPv4 SYN scanning library and a Linux port of the
+An IPv4 SYN scanning workspace containing the `singsing-rs` library and the
+`zucchini` Linux port scanner, based on the original
 [`zucca`](https://github.com/inode-/singsing/blob/master/src/examples/zucca.c)
-scanner from the original C singsing project.
+scanner from the C singsing project.
 
 The scanner creates raw IPv4/TCP packets, sends bandwidth-limited SYN probes,
 and validates response acknowledgement numbers before reporting SYN/ACK
@@ -35,17 +36,22 @@ treated as filtered or unreachable and are not printed.
 
 ## Installing
 
-The easiest way to get the latest release is via [crates.io](https://crates.io/crates/singsing-rs):
+Install the scanner from [crates.io](https://crates.io/crates/zucchini):
 
 ```sh
-cargo install singsing-rs
+cargo install zucchini
 ```
 
-To install as a library, run the following command in your project directory:
+To use the scanning library in another Rust project:
 
 ```sh
 cargo add singsing-rs
 ```
+
+## Workspace
+
+- `crates/singsing-rs` contains the reusable SYN scanning library.
+- `crates/zucchini` contains the command-line scanner.
 
 ## Compiling
 
@@ -62,11 +68,11 @@ cargo build --release
 > [!WARNING]
 > Only scan systems you own or have explicit permission to test.
 
-`zucca` uses a raw transport socket. Run it as root, or grant the installed
+`zucchini` uses a raw transport socket. Run it as root, or grant the installed
 binary only the capability it needs:
 
 ```sh
-sudo setcap cap_net_raw=eip "$(command -v zucca)"
+sudo setcap cap_net_raw=eip "$(command -v zucchini)"
 ```
 
 Choose an interface whose IPv4 address can route to the targets. List available
@@ -77,23 +83,23 @@ interfaces with `ip -brief address`.
 Scan selected ports on one host:
 
 ```sh
-sudo zucca -h 192.0.2.10 -i eth0 -p 22,80,443
+sudo zucchini -h 192.0.2.10 -i eth0 -p 22,80,443
 ```
 
 Scan a subnet and include closed ports:
 
 ```sh
-sudo zucca -h 192.0.2.0/24 -i eth0 -p 1-1024 -c
+sudo zucchini -h 192.0.2.0/24 -i eth0 -p 1-1024 -c
 ```
 
 Use TCP entries from `/etc/services`, limit the send rate to 100 KiB/s, and
 wait five seconds for late replies:
 
 ```sh
-sudo zucca -h 192.0.2.10 -i eth0 -b 100 -t 5
+sudo zucchini -h 192.0.2.10 -i eth0 -b 100 -t 5
 ```
 
-Run `zucca --help` for the complete command-line reference.
+Run `zucchini --help` for the complete command-line reference.
 
 Library users can construct a [`ScanConfig`](https://docs.rs/singsing-rs/latest/singsing_rs/struct.ScanConfig.html)
 and call [`scan`](https://docs.rs/singsing-rs/latest/singsing_rs/fn.scan.html).

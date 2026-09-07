@@ -9,9 +9,9 @@ use singsing_rs::{
     PortState, ScanConfig, interface_ipv4, parse_ports, parse_targets, ports_from_services, scan,
 };
 
-const PROGRAM: &str = "zucca";
+const PROGRAM: &str = "zucchini";
 
-/// Linux IPv4 SYN scanner, ported from singsing's zucca example.
+/// Linux IPv4 SYN scanner based on singsing's zucca example.
 #[derive(Debug, Parser)]
 #[command(name = PROGRAM, version, disable_help_flag = true)]
 struct Arguments {
@@ -79,7 +79,7 @@ fn run() -> Result<()> {
         .checked_mul(config.ports.len())
         .context("scan size overflow")?;
     eprintln!(
-        "zucca {} - scanning {probes} host/port pairs via {} ({source})",
+        "zucchini {} - scanning {probes} host/port pairs via {} ({source})",
         env!("CARGO_PKG_VERSION"),
         arguments.interface
     );
@@ -89,7 +89,7 @@ fn run() -> Result<()> {
             PortState::Open => "open",
             PortState::Closed => "closed",
         };
-        println!("zucca {state} {}:{}", result.host, result.port);
+        println!("zucchini {state} {}:{}", result.host, result.port);
     }
     eprintln!(
         "{probes} ports scanned in {:.1} seconds",

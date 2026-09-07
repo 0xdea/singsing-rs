@@ -1,0 +1,19 @@
+[package]
+name = "singsing-rs"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Linux IPv4 SYN scanning primitives"
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords = ["port-scanner", "tcp", "linux", "redteaming", "fast"]
+categories = ["network-programming"]
+
+[dependencies]
+anyhow.workspace = true
+ipnet.workspace = true
+pnet.workspace = true
+
+[lints]
+workspace = true

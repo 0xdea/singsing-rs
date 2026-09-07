@@ -64,9 +64,9 @@ pub struct ScanConfig {
 }
 
 impl ScanConfig {
-    /// Creates a configuration with the original zucca defaults.
+    /// Creates a configuration with the original zucca scanner's defaults.
     #[must_use]
-    pub fn new(targets: Vec<Ipv4Addr>, ports: Vec<u16>, source: Ipv4Addr) -> Self {
+    pub const fn new(targets: Vec<Ipv4Addr>, ports: Vec<u16>, source: Ipv4Addr) -> Self {
         Self {
             targets,
             ports,
@@ -175,14 +175,12 @@ pub fn ports_from_services(path: impl AsRef<std::path::Path>) -> Result<Vec<u16>
             .unwrap_or_default()
             .split_whitespace();
         let _service = fields.next();
-        if let Some(port_protocol) = fields.next() {
-            if let Some((port, "tcp")) = port_protocol.split_once('/') {
-                if let Ok(port) = parse_port(port) {
-                    if seen.insert(port) {
-                        ports.push(port);
-                    }
-                }
-            }
+        if let Some(port_protocol) = fields.next()
+            && let Some((port, "tcp")) = port_protocol.split_once('/')
+            && let Ok(port) = parse_port(port)
+            && seen.insert(port)
+        {
+            ports.push(port);
         }
     }
     if ports.is_empty() {
@@ -252,17 +250,20 @@ pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>> {
         )
     });
 
-    let packets_per_second = (config.bandwidth_kib * 1024 / PACKET_LEN as u64).max(1);
-    let interval = Duration::from_secs_f64(1.0 / packets_per_second as f64);
+    let bytes_per_second = config
+        .bandwidth_kib
+        .checked_mul(1024)
+        .ok_or_else(|| anyhow!("bandwidth is too large"))?;
+    let packets_per_second = (bytes_per_second / 40).max(1);
+    let interval = Duration::from_nanos(1_000_000_000_u64 / packets_per_second);
     let mut next_send = Instant::now();
     let send_result = (|| -> Result<()> {
         for (&(host, port), &sequence) in expected.iter() {
             let packet = syn_packet(config.source, host, source_port, port, sequence);
+            let ipv4_packet = MutableIpv4Packet::owned(packet)
+                .ok_or_else(|| anyhow!("failed to construct IPv4 packet"))?;
             sender
-                .send_to(
-                    MutableIpv4Packet::owned(packet).expect("fixed-size IPv4 packet"),
-                    IpAddr::V4(host),
-                )
+                .send_to(ipv4_packet, IpAddr::V4(host))
                 .with_context(|| format!("failed to send SYN to {host}:{port}"))?;
             next_send += interval;
             if let Some(delay) = next_send.checked_duration_since(Instant::now()) {
@@ -320,7 +321,7 @@ fn syn_packet(
     let mut ipv4 = MutableIpv4Packet::new(&mut bytes).expect("fixed-size IPv4 packet");
     ipv4.set_version(4);
     ipv4.set_header_length(5);
-    ipv4.set_total_length(PACKET_LEN as u16);
+    ipv4.set_total_length(40);
     ipv4.set_identification((sequence >> 16) as u16);
     ipv4.set_ttl(64);
     ipv4.set_next_level_protocol(IpNextHeaderProtocols::Tcp);

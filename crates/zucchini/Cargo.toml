@@ -1,0 +1,19 @@
+[package]
+name = "zucchini"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "A fast Linux IPv4 SYN port scanner"
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords = ["port-scanner", "tcp", "linux", "security"]
+categories = ["command-line-utilities", "network-programming"]
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+singsing-rs = { path = "../singsing-rs", version = "0.1.0" }
+
+[lints]
+workspace = true
