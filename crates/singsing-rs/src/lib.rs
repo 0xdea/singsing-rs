@@ -5,6 +5,19 @@
 //! The scanner sends raw TCP SYN packets and classifies SYN/ACK replies as
 //! open and RST replies as closed. Creating the raw transport socket requires
 //! root or the `CAP_NET_RAW` capability.
+//!
+//! One unbound source-port number is selected from `49152–65535` and reused
+//! for every probe in a scan. Because the port is not reserved, it can overlap
+//! a local connection; interference also requires that connection to use the
+//! same remote address and port.
+//!
+//! Responses must match an exact target host and port, the scanner's local
+//! address and source port, and the transmitted sequence number. SYN/ACK is
+//! classified as open; RST is optionally classified as closed.
+//!
+//! Probe pairs are sent in the unspecified order of a randomly seeded
+//! [`HashMap`]. This interleaves hosts and ports differently between runs,
+//! avoiding the predictable traversal used by a sequential scanner.
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr};
@@ -92,6 +105,9 @@ pub struct ScanConfig {
     /// Source IPv4 address assigned to the selected interface.
     pub source: Ipv4Addr,
     /// Approximate maximum packet bandwidth in KiB/s.
+    ///
+    /// [`ScanConfig::new`] defaults this to 15 KiB/s, or approximately 384
+    /// probes per second with the scanner's 40-byte packet accounting.
     pub bandwidth_kib: u64,
     /// Time to listen for late replies after the final probe.
     pub timeout: Duration,
@@ -100,7 +116,7 @@ pub struct ScanConfig {
 }
 
 impl ScanConfig {
-    /// Creates a configuration with the original zucca scanner's defaults.
+    /// Creates a configuration with 15 KiB/s bandwidth and a 30-second timeout.
     #[must_use]
     pub const fn new(targets: Vec<Ipv4Addr>, ports: Vec<u16>, source: Ipv4Addr) -> Self {
         Self {

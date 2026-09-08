@@ -95,6 +95,53 @@ sudo setcap cap_net_raw=eip "$(command -v zucchini)"
 Choose an interface whose IPv4 address can route to the targets. List available
 interfaces with `ip -brief address`.
 
+### Bandwidth pacing
+
+The default bandwidth is 15 KiB/s. With the Rust scanner's 40-byte IPv4/TCP
+header accounting, this corresponds to approximately 384 SYN probes per
+second. Override it with `-b` or `--bandwidth`.
+
+Original singsing calibrated transmission by sending test SYNs to itself, then
+adjusted a sleep after groups of roughly ten packets using a 58-byte packet
+estimate. This Rust implementation sends no calibration traffic: it schedules
+each probe against an absolute deadline using its 40-byte IPv4/TCP header size.
+The deadline approach is smoother and automatically accounts for ordinary send
+overhead, but the same bandwidth value permits about 45% more SYNs per second
+than the original 58-byte calculation.
+
+### Transmission order
+
+Original zucca used a deterministic segmented traversal: for each port, it
+walked large address ranges with a bandwidth-derived stride, falling back to
+sequential hosts for small ranges. This implementation stores exact
+host/port pairs in a randomly seeded `HashMap` and sends them in its
+unspecified iteration order. Consequently, hosts and ports are interleaved
+differently between runs rather than following a predictable sequence. This
+improves scan stealthiness by avoiding an obvious sequential pattern, although
+it does not make the traffic undetectable.
+
+### Response validation
+
+Original singsing primarily trusted TCP flags and a destination-port range.
+This implementation accepts a response only when its source host and port match
+an actual probe, its destination matches the scanner address and source port,
+and its acknowledgement number matches the transmitted sequence number. It
+then treats SYN/ACK as open and, when requested, RST as closed. This stricter
+correlation reduces false positives from unrelated TCP traffic, but ignores
+unusual RST responses without the expected acknowledgement number.
+
+### Source port behavior
+
+Each scan selects one TCP source-port number from `49152–65535` and reuses it
+for every raw SYN probe. The scanner writes this number directly into the TCP
+headers; it does not bind or reserve a local TCP socket.
+
+The selected number can therefore overlap a port used by another local
+connection. TCP connections are identified by their complete local and remote
+address/port tuple, so interference additionally requires the scan to target
+the same remote address and port. This is unlikely in typical use but is worth
+considering on busy scanning hosts with existing connections to the targets.
+
 ### Scan size limit
 
 A single scan is limited to 16,777,214 host/port pairs. This accommodates

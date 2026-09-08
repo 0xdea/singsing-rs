@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clearly separated final `Done:` host/port-pair scan summary.
 - Explicit `/31` and `/32` target-handling documentation.
 - Omit the `Scan results:` heading when no results are found.
+- Raw source-port reuse and its possible local connection collision documented.
+- Bandwidth pacing differences from the original singsing documented.
+- Strict probe/response correlation differences from singsing documented.
+- Non-deterministic host/port transmission ordering and its stealth benefit
+  documented.
+- Default bandwidth and corresponding approximate probe rate documented.
 
 ### Changed
 
