@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Partial results and sent-probe counts preserved in `IncompleteScanError` when
   probe transmission stops early.
 - Use of pnet Layer-3 raw sockets instead of libpcap documented.
+- Eager per-probe storage and the resulting memory requirements for large scans
+  documented, including comparison with singsing's incremental generation.
 
 ### Changed
 

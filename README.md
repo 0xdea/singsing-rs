@@ -177,6 +177,18 @@ networks larger than `/24` exceed the limit and must be split into `/24` or
 smaller scans. Larger networks can be scanned when the selected port count
 keeps the total number of host/port pairs within the limit.
 
+Unlike original singsing, which generated probes incrementally, this
+implementation expands all targets and builds an expected-response hash-table
+entry for every host/port pair before sending. Memory use therefore grows with
+the total number of pairs, not only with the number of responses. On a typical
+64-bit build, a one-port scan of a full usable `/8` consumes roughly 500 MiB
+when few hosts answer. If every host returns an accepted response, the
+expected-response table, duplicate set, target list, and buffered results
+together require approximately 832 MiB; allocator and operating-system
+overhead can bring peak memory close to or above 1 GiB. The exact amount
+depends on the Rust toolchain and allocator. Split large scans when memory is
+constrained even if they are below the configured pair limit.
+
 ### Target handling
 
 For networks from `/0` through `/30`, `zucchini` omits the network and

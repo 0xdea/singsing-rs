@@ -27,6 +27,12 @@
 //! interface discovery, packet construction and parsing, and raw IPv4 sending
 //! and receiving are all handled through pnet. Response filtering occurs in
 //! this crate instead of through a libpcap BPF capture filter.
+//!
+//! Scans eagerly store every target and expected host/port response. Memory use
+//! therefore grows with the number of probes, unlike original singsing's
+//! incremental probe generation. A one-port scan of a usable `/8` can approach
+//! or exceed 1 GiB when every target responds; callers with constrained memory
+//! should split large scans even when they are below the configured probe limit.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
