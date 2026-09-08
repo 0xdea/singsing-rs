@@ -24,7 +24,10 @@ use pnet::transport::{TransportChannelType, ipv4_packet_iter, transport_channel}
 
 const PACKET_LEN: usize = 40;
 const MAX_PROBES: usize = 16_777_214;
-const PROGRESS_INTERVAL: Duration = Duration::from_secs(60);
+const ONE_MINUTE: Duration = Duration::from_mins(1);
+const TEN_MINUTES: Duration = Duration::from_mins(10);
+const ONE_HOUR: Duration = Duration::from_hours(1);
+const THIRTY_MINUTES: Duration = Duration::from_mins(30);
 
 /// The state inferred from a TCP response.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -253,8 +256,9 @@ pub fn scan_with_callback(
 
 /// Executes a SYN scan with callbacks for results and sending progress.
 ///
-/// `on_result` runs as each response arrives. `on_progress` runs approximately
-/// once per minute while probes are being sent.
+/// `on_result` runs as each response arrives. While probes are being sent,
+/// `on_progress` runs every minute for the first ten minutes, every ten minutes
+/// through the first hour, and every thirty minutes thereafter.
 ///
 /// # Errors
 ///
@@ -327,7 +331,7 @@ pub fn scan_with_callbacks(
     let interval = Duration::from_nanos(1_000_000_000_u64 / packets_per_second);
     let mut next_send = Instant::now();
     let started = next_send;
-    let mut next_progress = started + PROGRESS_INTERVAL;
+    let mut next_progress = ONE_MINUTE;
     let send_result = (|| -> Result<()> {
         for (index, (&(host, port), &sequence)) in expected.iter().enumerate() {
             let packet = syn_packet(config.source, host, source_port, port, sequence);
@@ -341,13 +345,14 @@ pub fn scan_with_callbacks(
                 thread::sleep(delay);
             }
             let now = Instant::now();
-            if now >= next_progress {
+            let elapsed = now.duration_since(started);
+            if elapsed >= next_progress {
                 on_progress(ScanProgress {
                     probes_sent: index + 1,
                     total_probes: probe_count,
-                    elapsed: now.duration_since(started),
+                    elapsed,
                 })?;
-                next_progress = now + PROGRESS_INTERVAL;
+                next_progress = advance_progress_deadline(next_progress, elapsed);
             }
         }
         Ok(())
@@ -360,6 +365,24 @@ pub fn scan_with_callbacks(
     send_result?;
     results.sort_unstable_by_key(|result| (u32::from(result.host), result.port));
     Ok(results)
+}
+
+fn advance_progress_deadline(mut deadline: Duration, elapsed: Duration) -> Duration {
+    while deadline <= elapsed {
+        deadline = next_progress_deadline(deadline);
+    }
+    deadline
+}
+
+fn next_progress_deadline(previous: Duration) -> Duration {
+    let interval = if previous < TEN_MINUTES {
+        ONE_MINUTE
+    } else if previous < ONE_HOUR {
+        TEN_MINUTES
+    } else {
+        THIRTY_MINUTES
+    };
+    previous + interval
 }
 
 fn parse_port(input: &str) -> Result<u16> {
@@ -566,5 +589,21 @@ mod tests {
     #[test]
     fn probe_limit_accommodates_single_port_slash_8() {
         assert_eq!(MAX_PROBES, 16_777_214);
+    }
+
+    #[test]
+    fn progress_schedule_uses_increasing_intervals() {
+        assert_eq!(next_progress_deadline(Duration::from_mins(9)), TEN_MINUTES);
+        assert_eq!(next_progress_deadline(TEN_MINUTES), Duration::from_mins(20));
+        assert_eq!(next_progress_deadline(Duration::from_mins(50)), ONE_HOUR);
+        assert_eq!(next_progress_deadline(ONE_HOUR), Duration::from_mins(90));
+    }
+
+    #[test]
+    fn progress_schedule_skips_missed_deadlines() {
+        assert_eq!(
+            advance_progress_deadline(ONE_MINUTE, Duration::from_mins(35)),
+            Duration::from_mins(40)
+        );
     }
 }

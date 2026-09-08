@@ -45,7 +45,7 @@ struct Arguments {
     #[arg(short = 't', long, default_value_t = 30)]
     timeout: u64,
 
-    /// Stream tagged results and print progress every minute.
+    /// Stream tagged results and periodically print progress.
     #[arg(short = 'v', long)]
     verbose: bool,
 
