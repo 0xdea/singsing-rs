@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clearly introduced complete buffered output.
 - Scanner banner and consistently separated final scan results.
 - Clearly separated final `Done:` host/port-pair scan summary.
+- Explicit `/31` and `/32` target-handling documentation.
 
 ### Changed
 

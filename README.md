@@ -103,6 +103,18 @@ networks larger than `/24` exceed the limit and must be split into `/24` or
 smaller scans. Larger networks can be scanned when the selected port count
 keeps the total number of host/port pairs within the limit.
 
+### Target handling
+
+For networks from `/0` through `/30`, `zucchini` omits the network and
+broadcast addresses. A `/31` is treated as a point-to-point network, so both
+addresses are scanned. A `/32` scans its single address.
+
+```text
+192.0.2.0/30 → 192.0.2.1, 192.0.2.2
+192.0.2.0/31 → 192.0.2.0, 192.0.2.1
+192.0.2.7/32 → 192.0.2.7
+```
+
 ## Usage
 
 Scan selected ports on one host:

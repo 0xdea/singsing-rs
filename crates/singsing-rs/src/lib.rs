@@ -137,8 +137,9 @@ pub fn interface_ipv4(name: &str) -> Result<Ipv4Addr> {
 
 /// Expands an IPv4 address or CIDR into scan targets.
 ///
-/// Network and broadcast addresses are omitted for prefixes shorter than
-/// `/31`, matching [`Ipv4Net::hosts`].
+/// Network and broadcast addresses are omitted for prefixes from `/0` through
+/// `/30`. Both addresses of a `/31` are included, as is the single address of
+/// a `/32`, matching [`Ipv4Net::hosts`].
 ///
 /// # Errors
 ///
@@ -544,6 +545,17 @@ mod tests {
                 "192.0.2.1".parse::<Ipv4Addr>().unwrap(),
                 "192.0.2.2".parse::<Ipv4Addr>().unwrap()
             ]
+        );
+        assert_eq!(
+            parse_targets("192.0.2.0/31").unwrap(),
+            [
+                "192.0.2.0".parse::<Ipv4Addr>().unwrap(),
+                "192.0.2.1".parse::<Ipv4Addr>().unwrap()
+            ]
+        );
+        assert_eq!(
+            parse_targets("192.0.2.7/32").unwrap(),
+            ["192.0.2.7".parse::<Ipv4Addr>().unwrap()]
         );
     }
 
