@@ -118,7 +118,7 @@ fn run() -> Result<()> {
         write_result(result, false, false)?;
     }
     eprintln!(
-        "{probes} ports scanned in {:.1} seconds",
+        "\nDone: {probes} ports scanned in {:.1} seconds",
         started.elapsed().as_secs_f64()
     );
     Ok(())

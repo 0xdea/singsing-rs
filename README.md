@@ -30,6 +30,8 @@ Scanning 3 host/port pairs via eth0 (192.0.2.1)...
 
 Scan results:
 open 198.51.100.10:443
+
+Done: 3 ports scanned in 30.1 seconds
 ```
 
 ## Features
