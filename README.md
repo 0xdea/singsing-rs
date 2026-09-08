@@ -102,6 +102,15 @@ sudo setcap cap_net_raw=eip "$(command -v zucchini)"
 Choose an interface whose IPv4 address can route to the targets. List available
 interfaces with `ip -brief address`.
 
+### Packet I/O
+
+Unlike original singsing, which captured responses through libpcap and sent
+probes with a raw socket, this implementation uses pnet for interface
+discovery, IPv4/TCP packet construction and parsing, and Layer-3 raw-socket
+sending and receiving. It therefore does not require libpcap or expose
+link-layer headers. Responses are correlated and filtered in Rust rather than
+with a libpcap BPF capture filter.
+
 ### Bandwidth pacing
 
 The default bandwidth is 15 KiB/s. With the Rust scanner's 40-byte IPv4/TCP

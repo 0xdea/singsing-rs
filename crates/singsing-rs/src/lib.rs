@@ -22,6 +22,11 @@
 //! Probes use TTL 64, a 64,240-byte TCP window, and a sequence-derived IP ID.
 //! These fields primarily affect the observable packet fingerprint rather than
 //! ordinary SYN-scan classification.
+//!
+//! Packet I/O uses pnet Layer-3 transport channels rather than libpcap:
+//! interface discovery, packet construction and parsing, and raw IPv4 sending
+//! and receiving are all handled through pnet. Response filtering occurs in
+//! this crate instead of through a libpcap BPF capture filter.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
