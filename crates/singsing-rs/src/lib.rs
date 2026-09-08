@@ -160,8 +160,12 @@ impl ScanProgress {
 #[derive(Clone, Debug)]
 pub struct ScanConfig {
     /// IPv4 addresses to scan.
+    ///
+    /// Addresses must be unique.
     pub targets: Vec<Ipv4Addr>,
     /// TCP ports to scan.
+    ///
+    /// Ports must be unique.
     pub ports: Vec<u16>,
     /// Source IPv4 address assigned to the selected interface.
     pub source: Ipv4Addr,
@@ -220,7 +224,8 @@ pub fn interface_ipv4(name: &str) -> Result<Ipv4Addr> {
 ///
 /// # Errors
 ///
-/// Returns an error for malformed IPv4/CIDR input.
+/// Returns an error for malformed IPv4/CIDR input or a network containing more
+/// usable addresses than a `/8`.
 pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>> {
     let network: Ipv4Net = if input.contains('/') {
         input.parse().context("invalid IPv4 network")?
@@ -229,6 +234,12 @@ pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>> {
             .parse()
             .context("invalid IPv4 address")?
     };
+    if usable_target_count(network).is_none_or(|count| count > MAX_PROBES) {
+        bail!(
+            "{network} contains more than {MAX_PROBES} usable addresses; \
+             split networks larger than a /8"
+        );
+    }
     Ok(network.hosts().collect())
 }
 
@@ -311,9 +322,10 @@ pub fn ports_from_services(path: impl AsRef<std::path::Path>) -> Result<Vec<u16>
 /// # Errors
 ///
 /// Returns an error for an empty or excessively large scan, invalid bandwidth,
-/// raw socket permission failures, packet send failures, or receiver failures.
-/// A transmission-phase failure is returned as [`IncompleteScanError`], which
-/// retains results received for successfully sent probes.
+/// duplicate targets or ports, raw socket permission failures, packet send
+/// failures, or receiver failures. A transmission-phase failure is returned as
+/// [`IncompleteScanError`], which retains results received for successfully
+/// sent probes.
 pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>> {
     scan_with_callbacks(config, |_| Ok(()), |_| Ok(()))
 }
@@ -353,16 +365,7 @@ pub fn scan_with_callbacks(
 
     let source_port = source_port();
     let nonce = nonce();
-    let expected: HashMap<(Ipv4Addr, u16), u32> = config
-        .targets
-        .iter()
-        .flat_map(|host| {
-            config
-                .ports
-                .iter()
-                .map(move |port| ((*host, *port), sequence(*host, *port, nonce)))
-        })
-        .collect();
+    let expected = expected_responses(config, nonce, probe_count)?;
     let expected = Arc::new(expected);
 
     let protocol = TransportChannelType::Layer3(IpNextHeaderProtocols::Tcp);
@@ -447,6 +450,37 @@ fn validate_scan(config: &ScanConfig) -> Result<usize> {
         config.ports.len(),
         config.bandwidth_kib,
     )
+}
+
+fn usable_target_count(network: Ipv4Net) -> Option<usize> {
+    let host_bits = 32_u32.checked_sub(u32::from(network.prefix_len()))?;
+    match host_bits {
+        0 => Some(1),
+        1 => Some(2),
+        bits => 1_usize.checked_shl(bits)?.checked_sub(2),
+    }
+}
+
+fn expected_responses(
+    config: &ScanConfig,
+    nonce: u32,
+    probe_count: usize,
+) -> Result<HashMap<(Ipv4Addr, u16), u32>> {
+    let mut expected = HashMap::with_capacity(probe_count);
+    for &host in &config.targets {
+        for &port in &config.ports {
+            if expected
+                .insert((host, port), sequence(host, port, nonce))
+                .is_some()
+            {
+                bail!(
+                    "duplicate host/port pair {host}:{port}; \
+                     ScanConfig targets and ports must be unique"
+                );
+            }
+        }
+    }
+    Ok(expected)
 }
 
 fn validate_probe_count(
@@ -619,9 +653,9 @@ fn classify_response(
         return None;
     }
     let flags = tcp.get_flags();
-    let state = if flags & (TcpFlags::SYN | TcpFlags::ACK) == TcpFlags::SYN | TcpFlags::ACK {
+    let state = if flags == TcpFlags::SYN | TcpFlags::ACK {
         PortState::Open
-    } else if flags & TcpFlags::RST != 0 && show_closed {
+    } else if show_closed && (flags == TcpFlags::RST || flags == TcpFlags::RST | TcpFlags::ACK) {
         PortState::Closed
     } else {
         return None;
@@ -678,14 +712,18 @@ mod tests {
         classify_response(&ipv4, expected, source, source_port, show_closed, seen)
     }
 
-    fn services_from(contents: &str) -> Result<Vec<u16>> {
+    fn services_path() -> std::path::PathBuf {
         static NEXT_FILE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
         let number = NEXT_FILE.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
+        std::env::temp_dir().join(format!(
             "singsing-rs-services-{}-{number}",
             std::process::id()
-        ));
+        ))
+    }
+
+    fn services_from(contents: &str) -> Result<Vec<u16>> {
+        let path = services_path();
         std::fs::write(&path, contents)?;
         let result = ports_from_services(&path);
         std::fs::remove_file(path)?;
@@ -729,6 +767,33 @@ mod tests {
             parse_targets("192.0.2.7/32").unwrap(),
             ["192.0.2.7".parse::<Ipv4Addr>().unwrap()]
         );
+    }
+
+    #[test]
+    fn normalizes_host_bits_and_rejects_invalid_targets() {
+        assert_eq!(
+            parse_targets("192.0.2.7/30").unwrap(),
+            [
+                "192.0.2.5".parse::<Ipv4Addr>().unwrap(),
+                "192.0.2.6".parse::<Ipv4Addr>().unwrap()
+            ]
+        );
+        assert!(parse_targets("").is_err());
+        assert!(parse_targets("not-an-address").is_err());
+        assert!(parse_targets("192.0.2.1/33").is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_cidr_before_expansion() {
+        let slash_8 = "10.0.0.0/8".parse::<Ipv4Net>().unwrap();
+        let slash_31 = "192.0.2.0/31".parse::<Ipv4Net>().unwrap();
+        let slash_32 = "192.0.2.1/32".parse::<Ipv4Net>().unwrap();
+
+        assert_eq!(usable_target_count(slash_8), Some(MAX_PROBES));
+        assert_eq!(usable_target_count(slash_31), Some(2));
+        assert_eq!(usable_target_count(slash_32), Some(1));
+        assert!(parse_targets("10.0.0.0/7").is_err());
+        assert!(parse_targets("0.0.0.0/0").is_err());
     }
 
     #[test]
@@ -932,6 +997,85 @@ mod tests {
     }
 
     #[test]
+    fn ignores_truncated_and_unexpected_responses() {
+        let source = "192.0.2.1".parse().unwrap();
+        let target = "198.51.100.2".parse().unwrap();
+        let source_port = 50000;
+        let target_port = 443;
+        let sequence = 0x1234_5678_u32;
+        let expected = HashMap::from([((target, target_port), sequence)]);
+        let mut truncated = vec![0_u8; 20];
+        let mut ipv4 = MutableIpv4Packet::new(&mut truncated).unwrap();
+        ipv4.set_version(4);
+        ipv4.set_header_length(5);
+        ipv4.set_total_length(20);
+        ipv4.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
+        ipv4.set_source(target);
+        ipv4.set_destination(source);
+
+        let mut seen = HashSet::new();
+        assert_eq!(
+            classify_packet(&truncated, &expected, source, source_port, false, &mut seen),
+            None
+        );
+        for flags in [TcpFlags::ACK, TcpFlags::SYN | TcpFlags::ACK | TcpFlags::RST] {
+            let packet = response_packet(
+                target,
+                source,
+                target_port,
+                source_port,
+                sequence.wrapping_add(1),
+                flags,
+            );
+            assert_eq!(
+                classify_packet(&packet, &expected, source, source_port, true, &mut seen),
+                None
+            );
+        }
+
+        let valid = response_packet(
+            target,
+            source,
+            target_port,
+            source_port,
+            sequence.wrapping_add(1),
+            TcpFlags::SYN | TcpFlags::ACK,
+        );
+        assert!(
+            classify_packet(&valid, &expected, source, source_port, false, &mut seen).is_some()
+        );
+    }
+
+    #[test]
+    fn accepts_wrapped_acknowledgement_number() {
+        let source = "192.0.2.1".parse().unwrap();
+        let target = "198.51.100.2".parse().unwrap();
+        let source_port = 50000;
+        let target_port = 443;
+        let expected = HashMap::from([((target, target_port), u32::MAX)]);
+        let response = response_packet(
+            target,
+            source,
+            target_port,
+            source_port,
+            0,
+            TcpFlags::SYN | TcpFlags::ACK,
+        );
+
+        assert!(
+            classify_packet(
+                &response,
+                &expected,
+                source,
+                source_port,
+                false,
+                &mut HashSet::new()
+            )
+            .is_some()
+        );
+    }
+
+    #[test]
     fn validates_scan_limits_and_configuration() {
         assert_eq!(validate_probe_count(254, 65_535, 15).unwrap(), 16_645_890);
         assert_eq!(validate_probe_count(256, 65_535, 15).unwrap(), 16_776_960);
@@ -942,6 +1086,28 @@ mod tests {
         assert!(validate_probe_count(0, 1, 15).is_err());
         assert!(validate_probe_count(1, 0, 15).is_err());
         assert!(validate_probe_count(1, 1, 0).is_err());
+    }
+
+    #[test]
+    fn rejects_duplicate_scan_config_entries() {
+        let host = "192.0.2.1".parse().unwrap();
+        let duplicate_targets = ScanConfig::new(vec![host, host], vec![443], host);
+        let duplicate_ports = ScanConfig::new(vec![host], vec![443, 443], host);
+        let unique = ScanConfig::new(vec![host], vec![80, 443], host);
+
+        assert!(
+            expected_responses(&duplicate_targets, 1, 2)
+                .unwrap_err()
+                .to_string()
+                .contains("must be unique")
+        );
+        assert!(
+            expected_responses(&duplicate_ports, 1, 2)
+                .unwrap_err()
+                .to_string()
+                .contains("must be unique")
+        );
+        assert_eq!(expected_responses(&unique, 1, 2).unwrap().len(), 2);
     }
 
     #[test]
@@ -969,6 +1135,48 @@ zero            0/tcp
     }
 
     #[test]
+    fn reports_missing_services_file_path() {
+        let path = services_path();
+        let error = ports_from_services(&path).unwrap_err();
+
+        assert!(format!("{error:#}").contains(&path.display().to_string()));
+    }
+
+    #[test]
+    fn incomplete_scan_error_preserves_context() {
+        let partial_result = ScanResult {
+            host: "198.51.100.2".parse().unwrap(),
+            port: 443,
+            state: PortState::Open,
+        };
+        let incomplete = IncompleteScanError {
+            source: anyhow!("send failed"),
+            partial_results: vec![partial_result],
+            probes_sent: 7,
+            total_probes: 10,
+        };
+
+        assert_eq!(incomplete.partial_results(), [partial_result]);
+        assert_eq!(incomplete.probes_sent(), 7);
+        assert_eq!(incomplete.total_probes(), 10);
+        assert_eq!(
+            incomplete.to_string(),
+            "scan stopped after sending 7 of 10 probes"
+        );
+        assert_eq!(
+            std::error::Error::source(&incomplete).unwrap().to_string(),
+            "send failed"
+        );
+
+        let error: anyhow::Error = incomplete.into();
+        assert!(error.downcast_ref::<IncompleteScanError>().is_some());
+        assert_eq!(
+            format!("{error:#}"),
+            "scan stopped after sending 7 of 10 probes: send failed"
+        );
+    }
+
+    #[test]
     fn estimates_scan_progress() {
         let progress = ScanProgress {
             probes_sent: 25,
@@ -981,6 +1189,35 @@ zero            0/tcp
             progress.estimated_remaining(),
             Some(Duration::from_secs(180))
         );
+    }
+
+    #[test]
+    fn handles_scan_progress_boundaries() {
+        let no_probes = ScanProgress {
+            probes_sent: 0,
+            total_probes: 0,
+            elapsed: Duration::from_secs(60),
+        };
+        let not_started = ScanProgress {
+            total_probes: 100,
+            ..no_probes
+        };
+        let complete = ScanProgress {
+            probes_sent: 100,
+            ..not_started
+        };
+        let over_complete = ScanProgress {
+            probes_sent: 101,
+            ..complete
+        };
+
+        assert_eq!(no_probes.percent(), 0);
+        assert_eq!(no_probes.estimated_remaining(), None);
+        assert_eq!(not_started.percent(), 0);
+        assert_eq!(not_started.estimated_remaining(), None);
+        assert_eq!(complete.percent(), 100);
+        assert_eq!(complete.estimated_remaining(), Some(Duration::ZERO));
+        assert_eq!(over_complete.estimated_remaining(), Some(Duration::ZERO));
     }
 
     #[test]

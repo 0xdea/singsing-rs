@@ -189,6 +189,13 @@ overhead can bring peak memory close to or above 1 GiB. The exact amount
 depends on the Rust toolchain and allocator. Split large scans when memory is
 constrained even if they are below the configured pair limit.
 
+Networks larger than `/8` are rejected before their addresses are expanded,
+preventing oversized CIDRs such as `/7` or `/0` from exhausting memory before
+the scan limit can be checked. Library callers constructing `ScanConfig`
+directly must also provide unique target and port vectors; duplicate entries
+are rejected rather than silently producing inaccurate probe and progress
+counts.
+
 ### Target handling
 
 For networks from `/0` through `/30`, `zucchini` omits the network and

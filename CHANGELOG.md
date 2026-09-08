@@ -33,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented, including comparison with singsing's incremental generation.
 - Unit coverage for response correlation, SYN packet fields, scan limits, and
   services-file parsing.
+- Edge-case coverage for malformed responses and targets, wrapped
+  acknowledgement numbers, progress boundaries, incomplete-scan errors, CLI
+  arguments, and exact scanner output.
+- Pre-allocation rejection and tests for target networks larger than `/8`.
+- Duplicate targets and ports rejected in manually constructed `ScanConfig`
+  values.
 
 ### Changed
 
@@ -44,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Unclassified packets no longer consume the duplicate-response slot for a
   later valid response from the same host and port.
+- Ambiguous TCP flag combinations are no longer classified as open or closed.
 
 ## [0.1.1] - TODO
 

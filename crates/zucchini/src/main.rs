@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use chrono::{Duration as ChronoDuration, Local};
+use chrono::{DateTime, Duration as ChronoDuration, Local, TimeZone};
 use clap::Parser;
 use singsing_rs::{
     IncompleteScanError, PortState, ScanConfig, ScanProgress, ScanResult, interface_ipv4,
@@ -66,9 +66,7 @@ fn main() -> ExitCode {
 
 fn run() -> Result<()> {
     let arguments = Arguments::parse();
-    if arguments.timeout == 0 {
-        bail!("timeout must be greater than zero");
-    }
+    validate_arguments(&arguments)?;
     write_banner()?;
     let targets = parse_targets(&arguments.host)?;
     let ports = arguments
@@ -91,12 +89,7 @@ fn run() -> Result<()> {
         .context("scan size overflow")?;
     let stdout = io::stdout();
     let mut output = stdout.lock();
-    writeln!(
-        output,
-        "Scanning: {probes} host/port pairs via {} ({source})...",
-        arguments.interface
-    )
-    .context("failed to write scan summary")?;
+    write_scan_summary(&mut output, probes, &arguments.interface, source)?;
     output.flush().context("failed to flush scan summary")?;
     drop(output);
 
@@ -121,21 +114,52 @@ fn run() -> Result<()> {
             return Err(error);
         }
     }
-    eprintln!(
-        "\nDone: {probes} host/port pairs scanned in {:.1} seconds",
-        started.elapsed().as_secs_f64()
-    );
+    let stderr = io::stderr();
+    let mut output = stderr.lock();
+    write_done_summary(&mut output, probes, started.elapsed().as_secs_f64())?;
     Ok(())
 }
 
+fn validate_arguments(arguments: &Arguments) -> Result<()> {
+    if arguments.timeout == 0 {
+        bail!("timeout must be greater than zero");
+    }
+    Ok(())
+}
+
+fn write_scan_summary(
+    output: &mut impl Write,
+    probes: usize,
+    interface: &str,
+    source: std::net::Ipv4Addr,
+) -> Result<()> {
+    writeln!(
+        output,
+        "Scanning: {probes} host/port pairs via {interface} ({source})..."
+    )
+    .context("failed to write scan summary")
+}
+
+fn write_done_summary(output: &mut impl Write, probes: usize, elapsed: f64) -> Result<()> {
+    writeln!(
+        output,
+        "\nDone: {probes} host/port pairs scanned in {elapsed:.1} seconds"
+    )
+    .context("failed to write scan completion")
+}
+
 fn write_results(results: &[ScanResult]) -> Result<()> {
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    write_results_to(&mut output, results)
+}
+
+fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> Result<()> {
     if !results.is_empty() {
-        let stdout = io::stdout();
-        let mut output = stdout.lock();
         writeln!(output, "\nScan results:").context("failed to write results heading")?;
     }
     for &result in results {
-        write_result(result, false, false)?;
+        write_result_to(output, result, false)?;
     }
     Ok(())
 }
@@ -143,22 +167,35 @@ fn write_results(results: &[ScanResult]) -> Result<()> {
 fn write_banner() -> Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
+    write_banner_to(&mut output)?;
+    output.flush().context("failed to flush program banner")?;
+    Ok(())
+}
+
+fn write_banner_to(output: &mut impl Write) -> Result<()> {
     writeln!(output, "{PROGRAM} {VERSION} - {DESCRIPTION}")
         .context("failed to write program banner")?;
     writeln!(output, "Copyright (c) 2026 {AUTHORS}")
         .context("failed to write program copyright")?;
     writeln!(output).context("failed to write program banner spacing")?;
-    output.flush().context("failed to flush program banner")?;
     Ok(())
 }
 
 fn write_result(result: ScanResult, verbose: bool, flush: bool) -> Result<()> {
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    write_result_to(&mut output, result, verbose)?;
+    if flush {
+        output.flush().context("failed to flush scan result")?;
+    }
+    Ok(())
+}
+
+fn write_result_to(output: &mut impl Write, result: ScanResult, verbose: bool) -> Result<()> {
     let state = match result.state {
         PortState::Open => "open",
         PortState::Closed => "closed",
     };
-    let stdout = io::stdout();
-    let mut output = stdout.lock();
     if verbose {
         writeln!(output, "[verbose] {state} {}:{}", result.host, result.port)
             .context("failed to write verbose scan result")?;
@@ -166,31 +203,32 @@ fn write_result(result: ScanResult, verbose: bool, flush: bool) -> Result<()> {
         writeln!(output, "{state} {}:{}", result.host, result.port)
             .context("failed to write scan result")?;
     }
-    if flush {
-        output.flush().context("failed to flush scan result")?;
-    }
     Ok(())
 }
 
 fn write_progress(progress: ScanProgress) -> Result<()> {
+    let line = format_progress(progress, Local::now());
+    let stderr = io::stderr();
+    let mut output = stderr.lock();
+    writeln!(output, "{line}").context("failed to write scan progress")?;
+    output.flush().context("failed to flush scan progress")?;
+    Ok(())
+}
+
+fn format_progress<Tz>(progress: ScanProgress, now: DateTime<Tz>) -> String
+where
+    Tz: TimeZone,
+    Tz::Offset: std::fmt::Display,
+{
     let eta = progress
         .estimated_remaining()
         .and_then(|remaining| ChronoDuration::from_std(remaining).ok())
-        .and_then(|remaining| Local::now().checked_add_signed(remaining))
+        .and_then(|remaining| now.checked_add_signed(remaining))
         .map_or_else(
             || "unknown".to_owned(),
             |eta| eta.format("%a %Y-%m-%d %H:%M:%S %Z").to_string(),
         );
-    let stderr = io::stderr();
-    let mut output = stderr.lock();
-    writeln!(
-        output,
-        "[verbose] stats: {}% done, ETA {eta}",
-        progress.percent(),
-    )
-    .context("failed to write scan progress")?;
-    output.flush().context("failed to flush scan progress")?;
-    Ok(())
+    format!("[verbose] stats: {}% done, ETA {eta}", progress.percent())
 }
 
 #[cfg(test)]
@@ -198,13 +236,150 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_verbose_option() -> Result<()> {
+    fn parses_default_options() -> Result<()> {
         let arguments =
-            Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "-v"])?;
+            Arguments::try_parse_from(["zucchini", "--host", "127.0.0.1", "--interface", "lo"])?;
 
-        assert!(arguments.verbose);
+        assert_eq!(arguments.host, "127.0.0.1");
+        assert_eq!(arguments.interface, "lo");
+        assert_eq!(arguments.bandwidth, 15);
+        assert_eq!(arguments.ports, None);
+        assert!(!arguments.show_closed);
         assert_eq!(arguments.timeout, 30);
+        assert!(!arguments.verbose);
         assert_eq!(DESCRIPTION, "A blazing fast Linux IPv4 port scanner");
         Ok(())
+    }
+
+    #[test]
+    fn parses_all_scanner_options() -> Result<()> {
+        let arguments = Arguments::try_parse_from([
+            "zucchini",
+            "--host",
+            "192.0.2.0/24",
+            "--interface",
+            "eth0",
+            "--bandwidth",
+            "100",
+            "--ports",
+            "22,80",
+            "--show-closed",
+            "--timeout",
+            "60",
+            "--verbose",
+        ])?;
+
+        assert_eq!(arguments.host, "192.0.2.0/24");
+        assert_eq!(arguments.interface, "eth0");
+        assert_eq!(arguments.bandwidth, 100);
+        assert_eq!(arguments.ports.as_deref(), Some("22,80"));
+        assert!(arguments.show_closed);
+        assert_eq!(arguments.timeout, 60);
+        assert!(arguments.verbose);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_missing_unknown_and_invalid_options() -> Result<()> {
+        assert!(Arguments::try_parse_from(["zucchini", "-i", "lo"]).is_err());
+        assert!(Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1"]).is_err());
+        assert!(
+            Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "--unknown"])
+                .is_err()
+        );
+        let zero_timeout = Arguments::try_parse_from([
+            "zucchini",
+            "-h",
+            "127.0.0.1",
+            "-i",
+            "lo",
+            "--timeout",
+            "0",
+        ])?;
+        assert!(validate_arguments(&zero_timeout).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn formats_banner_scan_and_completion_summaries() -> Result<()> {
+        let mut output = Vec::new();
+        write_banner_to(&mut output)?;
+        write_scan_summary(&mut output, 3, "eth0", "192.0.2.1".parse().unwrap())?;
+        write_done_summary(&mut output, 3, 30.14)?;
+
+        assert_eq!(
+            String::from_utf8(output)?,
+            concat!(
+                "zucchini 0.1.0 - A blazing fast Linux IPv4 port scanner\n",
+                "Copyright (c) 2026 Marco Ivaldi <raptor@0xdeadbeef.info>\n",
+                "\n",
+                "Scanning: 3 host/port pairs via eth0 (192.0.2.1)...\n",
+                "\n",
+                "Done: 3 host/port pairs scanned in 30.1 seconds\n",
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn formats_empty_buffered_and_verbose_results() -> Result<()> {
+        let open = ScanResult {
+            host: "198.51.100.2".parse().unwrap(),
+            port: 443,
+            state: PortState::Open,
+        };
+        let closed = ScanResult {
+            host: "198.51.100.3".parse().unwrap(),
+            port: 80,
+            state: PortState::Closed,
+        };
+        let mut output = Vec::new();
+        write_results_to(&mut output, &[])?;
+        assert!(output.is_empty());
+
+        write_results_to(&mut output, &[open, closed])?;
+        assert_eq!(
+            String::from_utf8(output)?,
+            concat!(
+                "\n",
+                "Scan results:\n",
+                "open 198.51.100.2:443\n",
+                "closed 198.51.100.3:80\n",
+            )
+        );
+
+        let mut verbose = Vec::new();
+        write_result_to(&mut verbose, open, true)?;
+        assert_eq!(
+            String::from_utf8(verbose)?,
+            "[verbose] open 198.51.100.2:443\n"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn formats_progress_with_fixed_time() {
+        let now = chrono::Utc
+            .with_ymd_and_hms(2026, 1, 1, 12, 0, 0)
+            .single()
+            .unwrap();
+        let progress = ScanProgress {
+            probes_sent: 25,
+            total_probes: 100,
+            elapsed: Duration::from_secs(60),
+        };
+        let not_started = ScanProgress {
+            probes_sent: 0,
+            ..progress
+        };
+
+        assert_eq!(
+            format_progress(progress, now),
+            "[verbose] stats: 25% done, ETA Thu 2026-01-01 12:03:00 UTC"
+        );
+        assert_eq!(
+            format_progress(not_started, now),
+            "[verbose] stats: 0% done, ETA unknown"
+        );
     }
 }
