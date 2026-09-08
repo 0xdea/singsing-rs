@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Non-deterministic host/port transmission ordering and its stealth benefit
   documented.
 - Default bandwidth and corresponding approximate probe rate documented.
+- Probe TTL, TCP window, and IP ID differences from singsing documented.
+- Partial results and sent-probe counts preserved in `IncompleteScanError` when
+  probe transmission stops early.
 
 ### Changed
 

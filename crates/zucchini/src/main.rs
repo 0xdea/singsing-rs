@@ -8,8 +8,8 @@ use anyhow::{Context, Result, bail};
 use chrono::{Duration as ChronoDuration, Local};
 use clap::Parser;
 use singsing_rs::{
-    PortState, ScanConfig, ScanProgress, ScanResult, interface_ipv4, parse_ports, parse_targets,
-    ports_from_services, scan, scan_with_callbacks,
+    IncompleteScanError, PortState, ScanConfig, ScanProgress, ScanResult, interface_ipv4,
+    parse_ports, parse_targets, ports_from_services, scan, scan_with_callbacks,
 };
 
 const PROGRAM: &str = "zucchini";
@@ -101,27 +101,42 @@ fn run() -> Result<()> {
     drop(output);
 
     let started = Instant::now();
-    let results = if arguments.verbose {
+    let scan_result = if arguments.verbose {
         scan_with_callbacks(
             &config,
             |result| write_result(result, true, true),
             write_progress,
-        )?
+        )
     } else {
-        scan(&config)?
+        scan(&config)
     };
-    if !results.is_empty() {
-        let stdout = io::stdout();
-        let mut output = stdout.lock();
-        writeln!(output, "\nScan results:").context("failed to write results heading")?;
-    }
-    for result in results {
-        write_result(result, false, false)?;
+    match scan_result {
+        Ok(results) => {
+            write_results(&results)?;
+        }
+        Err(error) => {
+            if let Some(incomplete) = error.downcast_ref::<IncompleteScanError>() {
+                write_results(incomplete.partial_results())?;
+            }
+            return Err(error);
+        }
     }
     eprintln!(
         "\nDone: {probes} host/port pairs scanned in {:.1} seconds",
         started.elapsed().as_secs_f64()
     );
+    Ok(())
+}
+
+fn write_results(results: &[ScanResult]) -> Result<()> {
+    if !results.is_empty() {
+        let stdout = io::stdout();
+        let mut output = stdout.lock();
+        writeln!(output, "\nScan results:").context("failed to write results heading")?;
+    }
+    for &result in results {
+        write_result(result, false, false)?;
+    }
     Ok(())
 }
 

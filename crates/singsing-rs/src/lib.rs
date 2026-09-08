@@ -18,8 +18,13 @@
 //! Probe pairs are sent in the unspecified order of a randomly seeded
 //! [`HashMap`]. This interleaves hosts and ports differently between runs,
 //! avoiding the predictable traversal used by a sequential scanner.
+//!
+//! Probes use TTL 64, a 64,240-byte TCP window, and a sequence-derived IP ID.
+//! These fields primarily affect the observable packet fingerprint rather than
+//! ordinary SYN-scan classification.
 
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -60,6 +65,51 @@ pub struct ScanResult {
     pub port: u16,
     /// The inferred port state.
     pub state: PortState,
+}
+
+/// An error that stopped transmission after part of a scan was sent.
+#[derive(Debug)]
+pub struct IncompleteScanError {
+    source: anyhow::Error,
+    partial_results: Vec<ScanResult>,
+    probes_sent: usize,
+    total_probes: usize,
+}
+
+impl IncompleteScanError {
+    /// Returns results received from probes sent before transmission stopped.
+    #[must_use]
+    pub fn partial_results(&self) -> &[ScanResult] {
+        &self.partial_results
+    }
+
+    /// Returns the number of probes successfully sent before the error.
+    #[must_use]
+    pub const fn probes_sent(&self) -> usize {
+        self.probes_sent
+    }
+
+    /// Returns the total number of probes requested by the scan.
+    #[must_use]
+    pub const fn total_probes(&self) -> usize {
+        self.total_probes
+    }
+}
+
+impl fmt::Display for IncompleteScanError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "scan stopped after sending {} of {} probes",
+            self.probes_sent, self.total_probes
+        )
+    }
+}
+
+impl std::error::Error for IncompleteScanError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.source.as_ref())
+    }
 }
 
 /// Sending progress reported during a scan.
@@ -251,6 +301,8 @@ pub fn ports_from_services(path: impl AsRef<std::path::Path>) -> Result<Vec<u16>
 ///
 /// Returns an error for an empty or excessively large scan, invalid bandwidth,
 /// raw socket permission failures, packet send failures, or receiver failures.
+/// A transmission-phase failure is returned as [`IncompleteScanError`], which
+/// retains results received for successfully sent probes.
 pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>> {
     scan_with_callbacks(config, |_| Ok(()), |_| Ok(()))
 }
@@ -286,23 +338,7 @@ pub fn scan_with_callbacks(
     mut on_result: impl FnMut(ScanResult) -> Result<()> + Send + 'static,
     mut on_progress: impl FnMut(ScanProgress) -> Result<()>,
 ) -> Result<Vec<ScanResult>> {
-    if config.targets.is_empty() || config.ports.is_empty() {
-        bail!("at least one target and one port are required");
-    }
-    if config.bandwidth_kib == 0 {
-        bail!("bandwidth must be greater than zero");
-    }
-    let probe_count = config
-        .targets
-        .len()
-        .checked_mul(config.ports.len())
-        .ok_or_else(|| anyhow!("scan size overflow"))?;
-    if probe_count > MAX_PROBES {
-        bail!(
-            "scan contains {probe_count} probes; maximum is {MAX_PROBES} \
-             (one port on a /8 or all 65,535 ports on a /24); split larger scans"
-        );
-    }
+    let probe_count = validate_scan(config)?;
 
     let source_port = source_port();
     let nonce = nonce();
@@ -349,14 +385,16 @@ pub fn scan_with_callbacks(
     let mut next_send = Instant::now();
     let started = next_send;
     let mut next_progress = ONE_MINUTE;
+    let mut probes_sent = 0;
     let send_result = (|| -> Result<()> {
-        for (index, (&(host, port), &sequence)) in expected.iter().enumerate() {
+        for (&(host, port), &sequence) in expected.iter() {
             let packet = syn_packet(config.source, host, source_port, port, sequence);
             let ipv4_packet = MutableIpv4Packet::owned(packet)
                 .ok_or_else(|| anyhow!("failed to construct IPv4 packet"))?;
             sender
                 .send_to(ipv4_packet, IpAddr::V4(host))
                 .with_context(|| format!("failed to send SYN to {host}:{port}"))?;
+            probes_sent += 1;
             next_send += interval;
             if let Some(delay) = next_send.checked_duration_since(Instant::now()) {
                 thread::sleep(delay);
@@ -365,7 +403,7 @@ pub fn scan_with_callbacks(
             let elapsed = now.duration_since(started);
             if elapsed >= next_progress {
                 on_progress(ScanProgress {
-                    probes_sent: index + 1,
+                    probes_sent,
                     total_probes: probe_count,
                     elapsed,
                 })?;
@@ -379,9 +417,38 @@ pub fn scan_with_callbacks(
     let mut results = receive_thread
         .join()
         .map_err(|_| anyhow!("packet receiver thread panicked"))??;
-    send_result?;
     results.sort_unstable_by_key(|result| (u32::from(result.host), result.port));
+    if let Err(source) = send_result {
+        return Err(IncompleteScanError {
+            source,
+            partial_results: results,
+            probes_sent,
+            total_probes: probe_count,
+        }
+        .into());
+    }
     Ok(results)
+}
+
+fn validate_scan(config: &ScanConfig) -> Result<usize> {
+    if config.targets.is_empty() || config.ports.is_empty() {
+        bail!("at least one target and one port are required");
+    }
+    if config.bandwidth_kib == 0 {
+        bail!("bandwidth must be greater than zero");
+    }
+    let probe_count = config
+        .targets
+        .len()
+        .checked_mul(config.ports.len())
+        .ok_or_else(|| anyhow!("scan size overflow"))?;
+    if probe_count > MAX_PROBES {
+        bail!(
+            "scan contains {probe_count} probes; maximum is {MAX_PROBES} \
+             (one port on a /8 or all 65,535 ports on a /24); split larger scans"
+        );
+    }
+    Ok(probe_count)
 }
 
 fn advance_progress_deadline(mut deadline: Duration, elapsed: Duration) -> Duration {

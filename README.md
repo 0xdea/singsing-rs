@@ -45,6 +45,13 @@ Done: 3 host/port pairs scanned in 30.1 seconds
 - Immediate per-result feedback with `-v`/`--verbose`
 - Optional reporting of closed ports
 - Duplicate response suppression
+- Partial results preserved when probe transmission fails
+
+If transmission stops after an individual probe error, `zucchini` prints the
+results received from probes that were successfully sent, then reports the
+incomplete scan and exits with a failure status. Library callers can downcast
+the returned error to `IncompleteScanError` to inspect its partial results and
+sent-probe count.
 
 ## See also
 
@@ -119,6 +126,16 @@ unspecified iteration order. Consequently, hosts and ports are interleaved
 differently between runs rather than following a predictable sequence. This
 improves scan stealthiness by avoiding an obvious sequential pattern, although
 it does not make the traffic undetectable.
+
+### Packet fingerprint
+
+Rust probes use TTL 64, a 64,240-byte TCP window, and an IP ID derived from the
+probe sequence; original singsing used TTL 100, a 32,768-byte window, and
+incrementing IP IDs. These values should not change normal open/closed results:
+TTL 64 is sufficient for typical paths, the window matters only after a
+handshake, and these small packets are not normally fragmented. They do produce
+a different observable fingerprint and may be treated differently by unusual
+middlebox rules.
 
 ### Response validation
 
