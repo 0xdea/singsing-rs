@@ -20,7 +20,8 @@ responses as open or RST responses as closed. Hosts that do not reply are
 treated as filtered or unreachable and are not printed.
 
 Typical output begins with the scanner banner and keeps the final result list
-under a separate heading:
+under a separate heading. The heading is omitted when no scan results are
+found:
 
 ```text
 zucchini 0.1.0 - A blazing fast Linux IPv4 port scanner

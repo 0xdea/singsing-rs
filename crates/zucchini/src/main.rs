@@ -110,10 +110,11 @@ fn run() -> Result<()> {
     } else {
         scan(&config)?
     };
-    let stdout = io::stdout();
-    let mut output = stdout.lock();
-    writeln!(output, "\nScan results:").context("failed to write results heading")?;
-    drop(output);
+    if !results.is_empty() {
+        let stdout = io::stdout();
+        let mut output = stdout.lock();
+        writeln!(output, "\nScan results:").context("failed to write results heading")?;
+    }
     for result in results {
         write_result(result, false, false)?;
     }
