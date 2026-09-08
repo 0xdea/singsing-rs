@@ -31,12 +31,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use of pnet Layer-3 raw sockets instead of libpcap documented.
 - Eager per-probe storage and the resulting memory requirements for large scans
   documented, including comparison with singsing's incremental generation.
+- Unit coverage for response correlation, SYN packet fields, scan limits, and
+  services-file parsing.
 
 ### Changed
 
 - Increased the default response timeout from 3 to 30 seconds.
 - Increased the scan limit to 16,777,214 probes so either a single-port IPv4
   `/8` scan or a full-port `/24` scan fits.
+
+### Fixed
+
+- Unclassified packets no longer consume the duplicate-response slot for a
+  later valid response from the same host and port.
 
 ## [0.1.1] - TODO
 

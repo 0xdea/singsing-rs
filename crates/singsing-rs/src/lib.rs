@@ -46,7 +46,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use ipnet::Ipv4Net;
 use pnet::datalink;
 use pnet::packet::ip::IpNextHeaderProtocols;
-use pnet::packet::ipv4::{MutableIpv4Packet, checksum as ipv4_checksum};
+use pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet, checksum as ipv4_checksum};
 use pnet::packet::tcp::{MutableTcpPacket, TcpFlags, TcpPacket, ipv4_checksum as tcp_checksum};
 use pnet::packet::{MutablePacket, Packet};
 use pnet::transport::{TransportChannelType, ipv4_packet_iter, transport_channel};
@@ -442,16 +442,26 @@ pub fn scan_with_callbacks(
 }
 
 fn validate_scan(config: &ScanConfig) -> Result<usize> {
-    if config.targets.is_empty() || config.ports.is_empty() {
+    validate_probe_count(
+        config.targets.len(),
+        config.ports.len(),
+        config.bandwidth_kib,
+    )
+}
+
+fn validate_probe_count(
+    target_count: usize,
+    port_count: usize,
+    bandwidth_kib: u64,
+) -> Result<usize> {
+    if target_count == 0 || port_count == 0 {
         bail!("at least one target and one port are required");
     }
-    if config.bandwidth_kib == 0 {
+    if bandwidth_kib == 0 {
         bail!("bandwidth must be greater than zero");
     }
-    let probe_count = config
-        .targets
-        .len()
-        .checked_mul(config.ports.len())
+    let probe_count = target_count
+        .checked_mul(port_count)
         .ok_or_else(|| anyhow!("scan size overflow"))?;
     if probe_count > MAX_PROBES {
         bail!(
@@ -574,34 +584,15 @@ fn receive(
         else {
             continue;
         };
-        if ipv4.get_destination() != config.source {
+        let Some(result) = classify_response(
+            &ipv4,
+            config.expected,
+            config.source,
+            config.source_port,
+            config.show_closed,
+            &mut seen,
+        ) else {
             continue;
-        }
-        let Some(tcp) = TcpPacket::new(ipv4.payload()) else {
-            continue;
-        };
-        let key = (ipv4.get_source(), tcp.get_source());
-        let Some(sequence) = config.expected.get(&key) else {
-            continue;
-        };
-        if tcp.get_destination() != config.source_port
-            || tcp.get_acknowledgement() != sequence.wrapping_add(1)
-            || !seen.insert(key)
-        {
-            continue;
-        }
-        let flags = tcp.get_flags();
-        let state = if flags & (TcpFlags::SYN | TcpFlags::ACK) == TcpFlags::SYN | TcpFlags::ACK {
-            PortState::Open
-        } else if flags & TcpFlags::RST != 0 && config.show_closed {
-            PortState::Closed
-        } else {
-            continue;
-        };
-        let result = ScanResult {
-            host: key.0,
-            port: key.1,
-            state,
         };
         on_result(result)?;
         results.push(result);
@@ -609,10 +600,97 @@ fn receive(
     Ok(results)
 }
 
+fn classify_response(
+    ipv4: &Ipv4Packet<'_>,
+    expected: &HashMap<(Ipv4Addr, u16), u32>,
+    source: Ipv4Addr,
+    source_port: u16,
+    show_closed: bool,
+    seen: &mut HashSet<(Ipv4Addr, u16)>,
+) -> Option<ScanResult> {
+    if ipv4.get_destination() != source {
+        return None;
+    }
+    let tcp = TcpPacket::new(ipv4.payload())?;
+    let key = (ipv4.get_source(), tcp.get_source());
+    let sequence = expected.get(&key)?;
+    if tcp.get_destination() != source_port || tcp.get_acknowledgement() != sequence.wrapping_add(1)
+    {
+        return None;
+    }
+    let flags = tcp.get_flags();
+    let state = if flags & (TcpFlags::SYN | TcpFlags::ACK) == TcpFlags::SYN | TcpFlags::ACK {
+        PortState::Open
+    } else if flags & TcpFlags::RST != 0 && show_closed {
+        PortState::Closed
+    } else {
+        return None;
+    };
+    if !seen.insert(key) {
+        return None;
+    }
+    Some(ScanResult {
+        host: key.0,
+        port: key.1,
+        state,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pnet::packet::ipv4::Ipv4Packet;
+
+    fn response_packet(
+        remote: Ipv4Addr,
+        local: Ipv4Addr,
+        remote_port: u16,
+        local_port: u16,
+        acknowledgement: u32,
+        flags: u8,
+    ) -> Vec<u8> {
+        let mut bytes = vec![0_u8; PACKET_LEN];
+        let mut ipv4 = MutableIpv4Packet::new(&mut bytes).unwrap();
+        ipv4.set_version(4);
+        ipv4.set_header_length(5);
+        ipv4.set_total_length(40);
+        ipv4.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
+        ipv4.set_source(remote);
+        ipv4.set_destination(local);
+
+        let mut tcp = MutableTcpPacket::new(ipv4.payload_mut()).unwrap();
+        tcp.set_source(remote_port);
+        tcp.set_destination(local_port);
+        tcp.set_acknowledgement(acknowledgement);
+        tcp.set_data_offset(5);
+        tcp.set_flags(flags);
+        bytes
+    }
+
+    fn classify_packet(
+        bytes: &[u8],
+        expected: &HashMap<(Ipv4Addr, u16), u32>,
+        source: Ipv4Addr,
+        source_port: u16,
+        show_closed: bool,
+        seen: &mut HashSet<(Ipv4Addr, u16)>,
+    ) -> Option<ScanResult> {
+        let ipv4 = Ipv4Packet::new(bytes).unwrap();
+        classify_response(&ipv4, expected, source, source_port, show_closed, seen)
+    }
+
+    fn services_from(contents: &str) -> Result<Vec<u16>> {
+        static NEXT_FILE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+        let number = NEXT_FILE.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "singsing-rs-services-{}-{number}",
+            std::process::id()
+        ));
+        std::fs::write(&path, contents)?;
+        let result = ports_from_services(&path);
+        std::fs::remove_file(path)?;
+        result
+    }
 
     #[test]
     fn parses_ports_ranges_and_duplicates() {
@@ -657,10 +735,20 @@ mod tests {
     fn builds_valid_syn_packet() {
         let source = "192.0.2.1".parse().unwrap();
         let destination = "198.51.100.2".parse().unwrap();
-        let bytes = syn_packet(source, destination, 50000, 443, 123);
+        let sequence = 0x1234_5678;
+        let bytes = syn_packet(source, destination, 50000, 443, sequence);
         let ipv4 = Ipv4Packet::new(&bytes).unwrap();
         let tcp = TcpPacket::new(ipv4.payload()).unwrap();
 
+        assert_eq!(bytes.len(), PACKET_LEN);
+        assert_eq!(ipv4.get_version(), 4);
+        assert_eq!(ipv4.get_header_length(), 5);
+        assert_eq!(ipv4.get_total_length(), 40);
+        assert_eq!(ipv4.get_identification(), (sequence >> 16) as u16);
+        assert_eq!(ipv4.get_ttl(), 64);
+        assert_eq!(ipv4.get_next_level_protocol(), IpNextHeaderProtocols::Tcp);
+        assert_eq!(ipv4.get_source(), source);
+        assert_eq!(ipv4.get_destination(), destination);
         let mut ip_for_checksum = MutableIpv4Packet::owned(bytes.clone()).unwrap();
         ip_for_checksum.set_checksum(0);
         assert_eq!(
@@ -673,8 +761,211 @@ mod tests {
             tcp.get_checksum(),
             tcp_checksum(&tcp_for_checksum.to_immutable(), &source, &destination)
         );
+        assert_eq!(tcp.packet().len(), 20);
+        assert!(tcp.payload().is_empty());
+        assert_eq!(tcp.get_source(), 50000);
         assert_eq!(tcp.get_destination(), 443);
+        assert_eq!(tcp.get_sequence(), sequence);
+        assert_eq!(tcp.get_acknowledgement(), 0);
+        assert_eq!(tcp.get_data_offset(), 5);
         assert_eq!(tcp.get_flags(), TcpFlags::SYN);
+        assert_eq!(tcp.get_window(), 64240);
+        assert_eq!(tcp.get_urgent_ptr(), 0);
+    }
+
+    #[test]
+    fn accepts_open_response_once() {
+        let source = "192.0.2.1".parse().unwrap();
+        let target = "198.51.100.2".parse().unwrap();
+        let source_port = 50000;
+        let target_port = 443;
+        let sequence = 0x1234_5678_u32;
+        let expected = HashMap::from([((target, target_port), sequence)]);
+        let open = ScanResult {
+            host: target,
+            port: target_port,
+            state: PortState::Open,
+        };
+
+        let valid_open = response_packet(
+            target,
+            source,
+            target_port,
+            source_port,
+            sequence.wrapping_add(1),
+            TcpFlags::SYN | TcpFlags::ACK,
+        );
+        let mut seen = HashSet::new();
+        assert_eq!(
+            classify_packet(
+                &valid_open,
+                &expected,
+                source,
+                source_port,
+                false,
+                &mut seen
+            ),
+            Some(open)
+        );
+        assert_eq!(
+            classify_packet(
+                &valid_open,
+                &expected,
+                source,
+                source_port,
+                false,
+                &mut seen
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn rejects_uncorrelated_responses() {
+        let source = "192.0.2.1".parse().unwrap();
+        let target = "198.51.100.2".parse().unwrap();
+        let other_target = "198.51.100.3".parse().unwrap();
+        let source_port = 50000;
+        let target_port = 443;
+        let sequence = 0x1234_5678_u32;
+        let expected = HashMap::from([((target, target_port), sequence)]);
+        let invalid_packets = [
+            response_packet(
+                target,
+                "192.0.2.2".parse().unwrap(),
+                target_port,
+                source_port,
+                sequence.wrapping_add(1),
+                TcpFlags::SYN | TcpFlags::ACK,
+            ),
+            response_packet(
+                other_target,
+                source,
+                target_port,
+                source_port,
+                sequence.wrapping_add(1),
+                TcpFlags::SYN | TcpFlags::ACK,
+            ),
+            response_packet(
+                target,
+                source,
+                80,
+                source_port,
+                sequence.wrapping_add(1),
+                TcpFlags::SYN | TcpFlags::ACK,
+            ),
+            response_packet(
+                target,
+                source,
+                target_port,
+                source_port + 1,
+                sequence.wrapping_add(1),
+                TcpFlags::SYN | TcpFlags::ACK,
+            ),
+            response_packet(
+                target,
+                source,
+                target_port,
+                source_port,
+                sequence,
+                TcpFlags::SYN | TcpFlags::ACK,
+            ),
+        ];
+        for packet in invalid_packets {
+            assert_eq!(
+                classify_packet(
+                    &packet,
+                    &expected,
+                    source,
+                    source_port,
+                    false,
+                    &mut HashSet::new()
+                ),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn reports_closed_responses_only_when_requested() {
+        let source = "192.0.2.1".parse().unwrap();
+        let target = "198.51.100.2".parse().unwrap();
+        let source_port = 50000;
+        let target_port = 443;
+        let sequence = 0x1234_5678_u32;
+        let expected = HashMap::from([((target, target_port), sequence)]);
+        let closed_packet = response_packet(
+            target,
+            source,
+            target_port,
+            source_port,
+            sequence.wrapping_add(1),
+            TcpFlags::RST | TcpFlags::ACK,
+        );
+        let mut closed_seen = HashSet::new();
+        assert_eq!(
+            classify_packet(
+                &closed_packet,
+                &expected,
+                source,
+                source_port,
+                false,
+                &mut closed_seen
+            ),
+            None
+        );
+        assert_eq!(
+            classify_packet(
+                &closed_packet,
+                &expected,
+                source,
+                source_port,
+                true,
+                &mut closed_seen
+            ),
+            Some(ScanResult {
+                host: target,
+                port: target_port,
+                state: PortState::Closed,
+            })
+        );
+    }
+
+    #[test]
+    fn validates_scan_limits_and_configuration() {
+        assert_eq!(validate_probe_count(254, 65_535, 15).unwrap(), 16_645_890);
+        assert_eq!(validate_probe_count(256, 65_535, 15).unwrap(), 16_776_960);
+        assert_eq!(validate_probe_count(MAX_PROBES, 1, 15).unwrap(), MAX_PROBES);
+        assert!(validate_probe_count(257, 65_535, 15).is_err());
+        assert!(validate_probe_count(MAX_PROBES + 1, 1, 15).is_err());
+        assert!(validate_probe_count(usize::MAX, 2, 15).is_err());
+        assert!(validate_probe_count(0, 1, 15).is_err());
+        assert!(validate_probe_count(1, 0, 15).is_err());
+        assert!(validate_probe_count(1, 1, 0).is_err());
+    }
+
+    #[test]
+    fn parses_tcp_services_and_ignores_other_entries() -> Result<()> {
+        let ports = services_from(
+            "\
+# comment
+ssh             22/tcp
+domain          53/udp
+http            80/tcp  www # inline comment
+http-alt        80/tcp
+malformed
+invalid         nope/tcp
+zero            0/tcp
+",
+        )?;
+
+        assert_eq!(ports, [22, 80]);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_services_file_without_tcp_ports() {
+        assert!(services_from("domain 53/udp\n# comment\nmalformed\n").is_err());
     }
 
     #[test]
