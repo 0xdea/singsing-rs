@@ -93,7 +93,7 @@ fn run() -> Result<()> {
     let mut output = stdout.lock();
     writeln!(
         output,
-        "Scanning {probes} host/port pairs via {} ({source})...",
+        "Scanning: {probes} host/port pairs via {} ({source})...",
         arguments.interface
     )
     .context("failed to write scan summary")?;
@@ -118,7 +118,7 @@ fn run() -> Result<()> {
         write_result(result, false, false)?;
     }
     eprintln!(
-        "\nDone: {probes} ports scanned in {:.1} seconds",
+        "\nDone: {probes} host/port pairs scanned in {:.1} seconds",
         started.elapsed().as_secs_f64()
     );
     Ok(())

@@ -26,12 +26,12 @@ under a separate heading:
 zucchini 0.1.0 - A blazing fast Linux IPv4 port scanner
 Copyright (c) 2026 Marco Ivaldi <raptor@0xdeadbeef.info>
 
-Scanning 3 host/port pairs via eth0 (192.0.2.1)...
+Scanning: 3 host/port pairs via eth0 (192.0.2.1)...
 
 Scan results:
 open 198.51.100.10:443
 
-Done: 3 ports scanned in 30.1 seconds
+Done: 3 host/port pairs scanned in 30.1 seconds
 ```
 
 ## Features
