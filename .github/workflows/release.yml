@@ -27,27 +27,11 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            name: singsing-rs-linux-x86_64.tar.gz
+            name: zucchini-linux-x86_64.tar.gz
 
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            name: singsing-rs-linux-aarch64.tar.gz
-
-          - target: x86_64-apple-darwin
-            os: macOS-latest
-            name: singsing-rs-darwin-x86_64.tar.gz
-
-          - target: aarch64-apple-darwin
-            os: macOS-latest
-            name: singsing-rs-darwin-aarch64.tar.gz
-
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            name: singsing-rs-windows-x86_64.tar.gz
-
-          - target: aarch64-pc-windows-msvc
-            os: windows-latest
-            name: singsing-rs-windows-aarch64.tar.gz
+            name: zucchini-linux-aarch64.tar.gz
 
     steps:
       - name: checkout
@@ -60,25 +44,16 @@ jobs:
         with:
           target: ${{ matrix.target }}
           cache: false
-      - name: build
-        if: matrix.os != 'ubuntu-latest'
-        env:
-          TARGET: ${{ matrix.target }}
-        shell: bash
-        run: |
-          cargo build --release --locked --manifest-path lsp/Cargo.toml --target "$TARGET"
       - name: dependencies
-        if: matrix.os == 'ubuntu-latest'
         uses: taiki-e/install-action@184183c2401be73c3bf42c2e61268aa5855379c1 # v2.78.1
         with:
           tool: cross
       - name: build-linux
-        if: matrix.os == 'ubuntu-latest'
         env:
           TARGET: ${{ matrix.target }}
         shell: bash
         run: |
-          cross build --release --locked --manifest-path lsp/Cargo.toml --target "$TARGET"
+          cross build --release --locked --package zucchini --target "$TARGET"
       - name: package
         env:
           TARGET: ${{ matrix.target }}
@@ -86,11 +61,7 @@ jobs:
         shell: bash
         run: |
           cd "target/$TARGET/release"
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            tar czf "../../../$NAME" singsing-rs.exe
-          else
-            tar czf "../../../$NAME" singsing-rs
-          fi
+          tar czf "../../../$NAME" zucchini
       - name: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
