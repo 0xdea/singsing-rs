@@ -43,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public `singsing-rs` validation API.
 - CLI integration coverage for full-port `/23` and zero-bandwidth rejection
   before raw-socket creation.
+- Ignored privileged loopback integration coverage for live library scans and
+  end-to-end `zucchini` behavior, with documented manual execution requirements.
 
 ### Changed
 

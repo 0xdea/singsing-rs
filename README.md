@@ -249,6 +249,31 @@ and call [`scan`](https://docs.rs/singsing-rs/latest/singsing_rs/fn.scan.html).
 The scanner is intentionally Linux-focused. The release build and test suite
 are verified on Ubuntu Linux 24.04 (`aarch64`).
 
+## Testing
+
+Run the unit tests and unprivileged integration tests normally:
+
+```sh
+cargo test --workspace
+```
+
+Ignored Linux loopback integration tests exercise live raw-socket scanning,
+open and closed ports, callbacks, timeout handling, sorting, and complete
+`zucchini` output. They require root or `CAP_NET_RAW` and must run serially
+because concurrent raw receivers could observe each other's packets. Run them
+manually, never against external hosts:
+
+```sh
+sudo --preserve-env=PATH,CARGO_HOME,RUSTUP_HOME \
+  env CARGO_TARGET_DIR=/tmp/singsing-rs-privileged-target \
+  cargo test --workspace -- --ignored --test-threads=1
+```
+
+The separate target directory prevents Cargo from leaving root-owned build
+artifacts in the repository's normal `target/` directory. The ignored tests
+are still compiled by ordinary test and CI runs, so API changes cannot silently
+break them.
+
 ## Credits
 
 - Maurizio Agazzini (inode), author of the original singsing and zucca code
