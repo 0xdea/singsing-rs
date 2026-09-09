@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pre-allocation rejection and tests for target networks larger than `/8`.
 - Duplicate targets and ports rejected in manually constructed `ScanConfig`
   values.
+- Unprivileged black-box integration coverage for the `zucchini` CLI and the
+  public `singsing-rs` validation API.
+- CLI integration coverage for full-port `/23` and zero-bandwidth rejection
+  before raw-socket creation.
 
 ### Changed
 
