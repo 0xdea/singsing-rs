@@ -42,6 +42,7 @@ Done: 3 host/port pairs scanned in 30.1 seconds
 - TCP ports from `/etc/services` when `--ports` is omitted
 - Linux interface address discovery
 - Configurable bandwidth and response timeout
+- Progress statistics printed while scanning
 - Immediate per-result feedback with `-v`/`--verbose`
 - Optional reporting of closed ports
 - Duplicate response suppression
@@ -231,11 +232,12 @@ sudo zucchini -h 192.0.2.10 -i eth0 -b 100 -t 5
 
 Run `zucchini --help` for the complete command-line reference.
 
-Use `-v` or `--verbose` to print tagged responses as soon as they arrive and
-progress statistics with a local date/time ETA every minute for the first ten
-minutes, every ten minutes through the first hour, and every thirty minutes
-thereafter. The complete sorted results are still printed normally under a
-separate `Scan results:` heading when the scan finishes:
+Progress statistics with a local date/time ETA are always printed every
+minute for the first ten minutes, every ten minutes through the first hour,
+and every thirty minutes thereafter. Use `-v` or `--verbose` to additionally
+print tagged responses as soon as they arrive. The complete sorted results
+are still printed normally under a separate `Scan results:` heading when the
+scan finishes:
 
 ```sh
 sudo zucchini -h 192.0.2.0/24 -i eth0 -p 22,80,443 --verbose

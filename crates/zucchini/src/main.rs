@@ -9,7 +9,7 @@ use chrono::{DateTime, Duration as ChronoDuration, Local, TimeZone};
 use clap::Parser;
 use singsing_rs::{
     IncompleteScanError, PortState, ScanConfig, ScanProgress, ScanResult, interface_ipv4,
-    parse_ports, parse_targets, ports_from_services, scan, scan_with_callbacks,
+    parse_ports, parse_targets, ports_from_services, scan_with_callbacks,
 };
 
 const PROGRAM: &str = "zucchini";
@@ -45,7 +45,7 @@ struct Arguments {
     #[arg(short = 't', long, default_value_t = 30)]
     timeout: u64,
 
-    /// Stream tagged results and periodically print progress.
+    /// Stream tagged results as soon as they arrive.
     #[arg(short = 'v', long)]
     verbose: bool,
 
@@ -94,15 +94,18 @@ fn run() -> Result<()> {
     drop(output);
 
     let started = Instant::now();
-    let scan_result = if arguments.verbose {
-        scan_with_callbacks(
-            &config,
-            |result| write_result(result, true, true),
-            write_progress,
-        )
-    } else {
-        scan(&config)
-    };
+    let verbose = arguments.verbose;
+    let scan_result = scan_with_callbacks(
+        &config,
+        move |result| {
+            if verbose {
+                write_result(result, true, true)
+            } else {
+                Ok(())
+            }
+        },
+        write_progress,
+    );
     match scan_result {
         Ok(results) => {
             write_results(&results)?;
@@ -228,7 +231,7 @@ where
             || "unknown".to_owned(),
             |eta| eta.format("%a %Y-%m-%d %H:%M:%S %Z").to_string(),
         );
-    format!("[verbose] stats: {}% done, ETA {eta}", progress.percent())
+    format!("[stats] {}% done | ETA {eta}", progress.percent())
 }
 
 #[cfg(test)]
@@ -375,11 +378,11 @@ mod tests {
 
         assert_eq!(
             format_progress(progress, now),
-            "[verbose] stats: 25% done, ETA Thu 2026-01-01 12:03:00 UTC"
+            "[stats] 25% done | ETA Thu 2026-01-01 12:03:00 UTC"
         );
         assert_eq!(
             format_progress(not_started, now),
-            "[verbose] stats: 0% done, ETA unknown"
+            "[stats] 0% done | ETA unknown"
         );
     }
 }
