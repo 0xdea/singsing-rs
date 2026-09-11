@@ -21,7 +21,6 @@ ipnet = "2.11"
 pnet = "0.35"
 
 [profile.release]
-# see https://github.com/johnthagen/min-sized-rust
 strip = true
 lto = true
 opt-level = 3
