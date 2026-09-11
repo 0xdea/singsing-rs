@@ -1,4 +1,4 @@
-# singsing-rs ⚡️
+# singsing-rs
 
 [![](https://img.shields.io/github/stars/0xdea/singsing-rs.svg?style=flat&color=yellow)](https://github.com/0xdea/singsing-rs)
 [![](https://img.shields.io/crates/v/singsing-rs?style=flat&color=green&label=singsing-rs)](https://crates.io/crates/singsing-rs)
@@ -11,32 +11,31 @@
 >
 > -- [Matt Harrigan](https://wherewarlocksstayuplate.com/interview/episode-1-digital-jesus-aka-matt-harrigan/)
 
-The [singsing-rs](https://github.com/0xdea/singsing-rs/tree/master/crates/singsing-rs) library crate is a modern Rust port of the original [singsing](https://github.com/inode-/singsing) project by my old friend and longtime packet wizard 🧙‍♂️ [inode](https://github.com/inode-). It's a blazing fast Linux IPv4 port scanning library.
+The [`singsing-rs`](https://github.com/0xdea/singsing-rs/tree/master/crates/singsing-rs) library crate is a modern Rust reimplementation of the original [`singsing`](https://github.com/inode-/singsing) project by my old friend and longtime packet wizard [inode](https://github.com/inode-). It's a blazing fast ⚡️ Linux IPv4 port scanning library.
 
-The [zucchini](https://github.com/0xdea/singsing-rs/tree/master/crates/zucchini) binary crate is a standalone command-line port scanner based on `singsing-rs`, similar to the original
-[zucca](https://github.com/inode-/singsing/blob/master/src/examples/zucca.c) scanner from the C `singsing` project.
+The [`zucchini`](https://github.com/0xdea/singsing-rs/tree/master/crates/zucchini) binary crate is a standalone command-line port scanner based on `singsing-rs`, inspired by the original
+[`zucca`](https://github.com/inode-/singsing/blob/master/src/examples/zucca.c) scanner from the `singsing` project.
 
 ![](https://raw.githubusercontent.com/0xdea/singsing-rs/master/.img/screen01.png)
 
 ## How it works
 
-The scanner creates raw IPv4/TCP packets, sends bandwidth-limited SYN probes, and asynchronously validates response acknowledgement numbers before reporting SYN/ACK responses as open or, optionally, RST responses as closed. Hosts that do not reply are treated as filtered or unreachable and are not printed in the output.
+The scanner creates raw IPv4/TCP packets, sends bandwidth-limited SYN probes, and asynchronously validates response acknowledgement numbers before reporting SYN/ACK responses as open or, optionally, RST responses as closed. Target hosts that do not reply are treated as filtered or unreachable and are not printed in the output.
 
 > [!NOTE]
 > Creating the raw transport socket requires root or the `CAP_NET_RAW` capability.
 
-See [further below](https://github.com/0xdea/singsing-rs#implementation-details) for the main differences from the original `singsing` and other implementation details.
+See [below](https://github.com/0xdea/singsing-rs#implementation-details) for the main differences from the original `singsing` and other implementation details.
 
 ## Features
 
-- Support for IPv4 hosts and CIDR ranges as targets.
-- Support for comma-separated ports and inclusive port ranges.
+- Support for IPv4 hosts and CIDR ranges to scan.
+- Support for comma-separated ports and inclusive port ranges to scan.
 - Support for TCP ports from `/etc/services` if target ports are not specified.
+- Optional reporting of closed ports.
 - Configurable bandwidth and response timeout.
 - Progress statistics printed while scanning.
 - Immediate per-result feedback with `-v`/`--verbose`.
-- Optional reporting of closed ports.
-- Duplicate response suppression.
 - Partial results preserved when probe transmission fails.
 
 ## See also
@@ -70,15 +69,15 @@ cargo build --release
 
 ## Configuration
 
-`zucchini` uses a raw transport socket. Run it as root, or grant the installed binary only the capability it needs:
+The `zucchini` scanner uses a raw transport socket. Either run it as root, or grant the installed binary only the capability it needs:
 
 ```sh
 sudo setcap cap_net_raw=eip "$(command -v zucchini)"
 ```
 
-Choose an interface whose IPv4 address can route to the targets. List available interfaces with `ip -brief address`.
+Choose an interface with `-i`/`--interface` whose IPv4 address can route to the targets. You can list available interfaces with `ip -brief address`.
 
-## Usage examples
+## Usage
 
 > [!WARNING]
 > Only scan systems you own or have explicit permission to test.
@@ -86,37 +85,37 @@ Choose an interface whose IPv4 address can route to the targets. List available 
 Scan selected ports on one host:
 
 ```sh
-sudo zucchini -h 192.0.2.10 -i eth0 -p 22,80,443
+zucchini -h 192.0.2.10 -i eth0 -p 22-23,80,443
 ```
 
-Scan all ports on a `/24` subnet and include closed ports:
+Scan all ports on a `/24` subnet, including closed ports:
 
 ```sh
-sudo zucchini -h 192.0.2.0/24 -i eth0 -p 1-65535 -c
+zucchini -h 192.0.2.0/24 -i eth0 -p 1-65535 -c
 ```
 
-Scan one port on a `/8` subnet and increase the send rate to 40 KiB/s:
+Scan one port on a `/8` subnet, increasing the send rate bandwidth to 40 KiB/s:
 
 ```sh
-sudo zucchini -h 192.0.0.0/8 -i eth0 -p 22 -b 40
+zucchini -h 192.0.0.0/8 -i eth0 -p 22 -b 40
 ```
 
-Use TCP entries from `/etc/services` and wait only five seconds for late replies:
+Use TCP port entries from `/etc/services` and wait only five seconds for late replies:
 
 ```sh
-sudo zucchini -h 192.0.2.10 -i eth0 -t 5
+zucchini -h 192.0.2.10 -i eth0 -t 5
 ```
 
-Progress statistics with a local date/time ETA are always printed every minute for the first ten minutes, every ten minutes through the first hour, and every thirty minutes thereafter. Use `-v` or `--verbose` to additionally print tagged responses as soon as they arrive. The complete sorted results are still printed normally under a separate `Scan results:` heading when the scan finishes:
+Progress statistics with a local date/time ETA are always printed every minute for the first ten minutes, every ten minutes through the first hour, and every thirty minutes thereafter. Use `-v`/`--verbose` to additionally print responses as soon as they arrive. The complete sorted results are always printed under a separate `Scan results:` heading when the scan finishes:
 
 ```sh
-sudo zucchini -h 192.0.2.0/24 -i eth0 -p 22,80,443 -v
+zucchini -h 192.0.2.0/24 -i eth0 -p 22,80,443 -v
 ```
 
 Run `zucchini --help` for the complete command-line reference.
 
 Library users can construct a [`ScanConfig`](https://docs.rs/singsing-rs/latest/singsing_rs/struct.ScanConfig.html)
-and call [`scan`](https://docs.rs/singsing-rs/latest/singsing_rs/fn.scan.html).
+and call [`scan`](https://docs.rs/singsing-rs/latest/singsing_rs/fn.scan.html). See the [API documentation](https://docs.rs/singsing-rs/latest/singsing_rs/) for more details.
 
 ## Testing
 
@@ -126,7 +125,7 @@ Run the unit tests and unprivileged integration tests normally:
 cargo test --workspace
 ```
 
-Ignored Linux loopback integration tests exercise live raw-socket scanning, open and closed ports, callbacks, timeout handling, sorting, and complete `zucchini` output. They require root or `CAP_NET_RAW` and must run serially because concurrent raw receivers could observe each other's packets. Run them manually, never against external hosts:
+Ignored Linux loopback integration tests exercise live raw-socket scanning, open and closed ports, callbacks, timeout handling, sorting, and complete `zucchini` output. They require root or `CAP_NET_RAW` and must run serially because concurrent raw receivers could observe each other's packets. Run them manually as follows:
 
 ```sh
 sudo --preserve-env=PATH,CARGO_HOME,RUSTUP_HOME \
@@ -138,11 +137,11 @@ The separate target directory prevents Cargo from leaving root-owned build artif
 
 ## Compatibility
 
-The scanner is intentionally Linux-focused. The release build and test suite are verified on Ubuntu Linux 24.04 (`aarch64`).
+The scanner is intentionally Linux-focused. The release build and test suite have been verified on Ubuntu Linux 24.04 (`aarch64` and `x86_64`).
 
 ## Credits
 
-- Maurizio Agazzini ([inode](https://github.com/inode-)), author of the original `singsing` and `zucca`.
+- Maurizio Agazzini ([inode](https://github.com/inode-) 🧙‍♂️), author of the original `singsing` and `zucca`.
 
 ## Implementation details
 
