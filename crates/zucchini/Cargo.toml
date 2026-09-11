@@ -1,14 +1,16 @@
 [package]
 name = "zucchini"
+description = "A blazing fast Linux IPv4 port scanner"
+categories = ["security", "network-programming", "command-line-utilities"]
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "A blazing fast Linux IPv4 port scanner"
 homepage.workspace = true
 repository.workspace = true
+readme.workspace = true
 license.workspace = true
-keywords = ["port-scanner", "tcp", "linux", "security"]
-categories = ["command-line-utilities", "network-programming"]
+keywords.workspace = true
+exclude.workspace = true
 
 [dependencies]
 anyhow.workspace = true

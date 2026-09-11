@@ -7,29 +7,37 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use std::{fmt, thread};
+use std::{fmt, fs, thread};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use ipnet::Ipv4Net;
 use pnet::datalink;
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet, checksum as ipv4_checksum};
 use pnet::packet::tcp::{MutableTcpPacket, TcpFlags, TcpPacket, ipv4_checksum as tcp_checksum};
-use pnet::packet::{MutablePacket, Packet};
+use pnet::packet::{MutablePacket as _, Packet as _};
 use pnet::transport::{TransportChannelType, ipv4_packet_iter, transport_channel};
 
+/// The packet length used for scanning.
 const PACKET_LEN: usize = 40;
-const MAX_PROBES: usize = 16_777_214;
+/// The maximum number of probes to send during a scan (`16_777_214`).
+const MAX_PROBES: usize = 0x00FF_FFFE;
+/// One minute duration.
 const ONE_MINUTE: Duration = Duration::from_mins(1);
+/// Ten minute duration.
 const TEN_MINUTES: Duration = Duration::from_mins(10);
-const ONE_HOUR: Duration = Duration::from_hours(1);
+/// Thirty minute duration.
 const THIRTY_MINUTES: Duration = Duration::from_mins(30);
+/// One hour duration.
+const ONE_HOUR: Duration = Duration::from_hours(1);
 
 /// The state inferred from a TCP response.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum PortState {
     /// A SYN/ACK was received.
     Open,
@@ -51,9 +59,13 @@ pub struct ScanResult {
 /// An error that stopped transmission after part of a scan was sent.
 #[derive(Debug)]
 pub struct IncompleteScanError {
+    /// The error that caused the incomplete scan.
     source: anyhow::Error,
+    /// The results received from probes sent before transmission stopped.
     partial_results: Vec<ScanResult>,
+    /// The number of probes successfully sent before the error.
     probes_sent: usize,
+    /// The total number of probes requested by the scan.
     total_probes: usize,
 }
 
@@ -78,9 +90,9 @@ impl IncompleteScanError {
 }
 
 impl fmt::Display for IncompleteScanError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
-            formatter,
+            f,
             "scan stopped after sending {} of {} probes",
             self.probes_sent, self.total_probes
         )
@@ -128,6 +140,7 @@ impl ScanProgress {
 
 /// Configuration for one SYN scan.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct ScanConfig {
     /// IPv4 addresses to scan.
     ///
@@ -258,8 +271,8 @@ pub fn parse_ports(input: &str) -> Result<Vec<u16>> {
 /// # Errors
 ///
 /// Returns an error when the file cannot be read or contains no TCP services.
-pub fn ports_from_services(path: impl AsRef<std::path::Path>) -> Result<Vec<u16>> {
-    let contents = std::fs::read_to_string(path.as_ref())
+pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<u16>> {
+    let contents = fs::read_to_string(path.as_ref())
         .with_context(|| format!("failed to read {}", path.as_ref().display()))?;
     let mut ports = Vec::new();
     let mut seen = HashSet::new();

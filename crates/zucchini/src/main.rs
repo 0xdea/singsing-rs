@@ -198,6 +198,7 @@ fn write_result_to(output: &mut impl Write, result: ScanResult, verbose: bool) -
     let state = match result.state {
         PortState::Open => "open",
         PortState::Closed => "closed",
+        _ => "unknown",
     };
     if verbose {
         writeln!(output, "[verbose] {state} {}:{}", result.host, result.port)

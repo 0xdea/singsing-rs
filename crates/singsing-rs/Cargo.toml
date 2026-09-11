@@ -1,14 +1,16 @@
 [package]
 name = "singsing-rs"
+description = "A blazing fast Linux IPv4 port scanning library"
+categories = ["security", "network-programming"]
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "A blazing fast Linux IPv4 port scanning library"
 homepage.workspace = true
 repository.workspace = true
+readme.workspace = true
 license.workspace = true
-keywords = ["port-scanner", "tcp", "linux", "redteaming", "fast"]
-categories = ["network-programming"]
+keywords.workspace = true
+exclude.workspace = true
 
 [dependencies]
 anyhow.workspace = true
