@@ -6,7 +6,6 @@
 [![](https://img.shields.io/badge/twitter-%400xdea-blue.svg)](https://twitter.com/0xdea)
 [![](https://img.shields.io/badge/mastodon-%40raptor-purple.svg)](https://infosec.exchange/@raptor)
 [![build](https://github.com/0xdea/singsing-rs/actions/workflows/build.yml/badge.svg)](https://github.com/0xdea/singsing-rs/actions/workflows/build.yml)
-[![release](https://github.com/0xdea/singsing-rs/actions/workflows/release.yml/badge.svg)](https://github.com/0xdea/singsing-rs/actions/workflows/release.yml)
 
 > "Then, we got a modem."
 >
@@ -26,7 +25,7 @@ The scanner creates raw IPv4/TCP packets, sends bandwidth-limited SYN probes, an
 > [!NOTE]
 > Creating the raw transport socket requires root or the `CAP_NET_RAW` capability.
 
-See further below for the main differences from the original singsing and other implementation details.
+See [further below](https://github.com/0xdea/singsing-rs#implementation-details) for the main differences from the original singsing and other implementation details.
 
 ## Features
 
