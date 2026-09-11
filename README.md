@@ -48,7 +48,7 @@ See [below](https://github.com/0xdea/singsing-rs#implementation-details) for the
 Install the latest release of the scanner from [crates.io](https://crates.io/crates/zucchini):
 
 ```sh
-cargo install zucchini
+cargo install zucchini --locked
 ```
 
 To use the scanning library in another Rust project:
@@ -64,7 +64,7 @@ Alternatively, you can build from [source](https://github.com/0xdea/singsing-rs)
 ```sh
 git clone https://github.com/0xdea/singsing-rs
 cd singsing-rs
-cargo build --release
+cargo build --release --locked
 ```
 
 ## Configuration
@@ -122,7 +122,7 @@ and call [`scan`](https://docs.rs/singsing-rs/latest/singsing_rs/fn.scan.html). 
 Run the unit tests and unprivileged integration tests normally:
 
 ```sh
-cargo test --workspace
+cargo test --workspace --locked
 ```
 
 Ignored Linux loopback integration tests exercise live raw-socket scanning, open and closed ports, callbacks, timeout handling, sorting, and complete `zucchini` output. They require root or `CAP_NET_RAW` and must run serially because concurrent raw receivers could observe each other's packets. Run them manually as follows:
@@ -130,7 +130,7 @@ Ignored Linux loopback integration tests exercise live raw-socket scanning, open
 ```sh
 sudo --preserve-env=PATH,CARGO_HOME,RUSTUP_HOME \
   env CARGO_TARGET_DIR=/tmp/singsing-rs-privileged-target \
-  cargo test --workspace -- --ignored --test-threads=1
+  cargo test --workspace --locked -- --ignored --test-threads=1
 ```
 
 The separate target directory prevents Cargo from leaving root-owned build artifacts in the repository's normal `target/` directory. The ignored tests are still compiled by ordinary test and CI runs, so API changes cannot silently break them.
