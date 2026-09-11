@@ -1,4 +1,4 @@
-# singsing-rs
+# singsing-rs ⚡️
 
 [![](https://img.shields.io/github/stars/0xdea/singsing-rs.svg?style=flat&color=yellow)](https://github.com/0xdea/singsing-rs)
 [![](https://img.shields.io/crates/v/singsing-rs?style=flat&color=green&label=singsing-rs)](https://crates.io/crates/singsing-rs)
@@ -11,10 +11,10 @@
 >
 > -- [Matt Harrigan](https://wherewarlocksstayuplate.com/interview/episode-1-digital-jesus-aka-matt-harrigan/)
 
-The [singsing-rs](https://github.com/0xdea/singsing-rs/tree/master/crates/singsing-rs) library crate is a modern Rust port of the original [singsing](https://github.com/inode-/singsing) project by my old friend and longtime packet wizard 🧙‍♂️ [inode](https://github.com/inode-). It's a blazing fast ⚡️ Linux IPv4 port scanning library.
+The [singsing-rs](https://github.com/0xdea/singsing-rs/tree/master/crates/singsing-rs) library crate is a modern Rust port of the original [singsing](https://github.com/inode-/singsing) project by my old friend and longtime packet wizard 🧙‍♂️ [inode](https://github.com/inode-). It's a blazing fast Linux IPv4 port scanning library.
 
 The [zucchini](https://github.com/0xdea/singsing-rs/tree/master/crates/zucchini) binary crate is a standalone command-line port scanner based on `singsing-rs`, similar to the original
-[zucca](https://github.com/inode-/singsing/blob/master/src/examples/zucca.c) scanner from the C singsing project.
+[zucca](https://github.com/inode-/singsing/blob/master/src/examples/zucca.c) scanner from the C `singsing` project.
 
 ![](https://raw.githubusercontent.com/0xdea/singsing-rs/master/.img/screen01.png)
 
@@ -25,7 +25,7 @@ The scanner creates raw IPv4/TCP packets, sends bandwidth-limited SYN probes, an
 > [!NOTE]
 > Creating the raw transport socket requires root or the `CAP_NET_RAW` capability.
 
-See [further below](https://github.com/0xdea/singsing-rs#implementation-details) for the main differences from the original singsing and other implementation details.
+See [further below](https://github.com/0xdea/singsing-rs#implementation-details) for the main differences from the original `singsing` and other implementation details.
 
 ## Features
 
@@ -142,31 +142,31 @@ The scanner is intentionally Linux-focused. The release build and test suite are
 
 ## Credits
 
-- Maurizio Agazzini ([inode](https://github.com/inode-)), author of the original singsing and zucca code.
+- Maurizio Agazzini ([inode](https://github.com/inode-)), author of the original `singsing` and `zucca`.
 
 ## Implementation details
 
 ### Packet I/O
 
-Unlike the original singsing, which captured responses through libpcap and sent probes with a raw socket, this implementation uses pnet for interface discovery, IPv4/TCP packet construction and parsing, and Layer-3 raw-socket sending and receiving. It therefore does not require libpcap or expose link-layer headers. Responses are correlated and filtered in Rust rather than with a libpcap BPF capture filter.
+Unlike the original `singsing`, which captured responses through libpcap and sent probes with a raw socket, this implementation uses pnet for interface discovery, IPv4/TCP packet construction and parsing, and Layer-3 raw-socket sending and receiving. It therefore does not require libpcap or expose link-layer headers. Responses are correlated and filtered in Rust rather than with a libpcap BPF capture filter.
 
 ### Bandwidth pacing
 
 The default bandwidth is 15 KiB/s. With the Rust scanner's 40-byte IPv4/TCP header accounting, this corresponds to approximately 384 SYN probes per second. Override it with `-b` or `--bandwidth`.
 
-The original singsing calibrated transmission by sending test SYNs to itself, then adjusted a sleep after groups of roughly ten packets using a 58-byte packet estimate. This implementation sends no calibration traffic: it schedules each probe against an absolute deadline using its 40-byte IPv4/TCP header size. The deadline approach is smoother and automatically accounts for ordinary send overhead, and the same bandwidth value permits about 45% more SYNs per second than the original 58-byte calculation.
+The original `singsing` calibrated transmission by sending test SYNs to itself, then adjusted a sleep after groups of roughly ten packets using a 58-byte packet estimate. This implementation sends no calibration traffic: it schedules each probe against an absolute deadline using its 40-byte IPv4/TCP header size. The deadline approach is smoother and automatically accounts for ordinary send overhead, and the same bandwidth value permits about 45% more SYNs per second than the original 58-byte calculation.
 
 ### Transmission order
 
-The original zucca used a deterministic segmented traversal: for each port, it walked large address ranges with a bandwidth-derived stride, falling back to sequential hosts for small ranges. This implementation stores exact host/port pairs in a randomly seeded `HashMap` and sends them in its unspecified iteration order. Consequently, hosts and ports are interleaved differently between runs rather than following a predictable sequence. This improves scan stealthiness by avoiding an obvious sequential pattern.
+The original `zucca` used a deterministic segmented traversal: for each port, it walked large address ranges with a bandwidth-derived stride, falling back to sequential hosts for small ranges. This implementation stores exact host/port pairs in a randomly seeded `HashMap` and sends them in its unspecified iteration order. Consequently, hosts and ports are interleaved differently between runs rather than following a predictable sequence. This improves scan stealthiness by avoiding an obvious sequential pattern.
 
 ### Packet fingerprint
 
-Rust probes use TTL 64, a 64,240-byte TCP window, and an IP ID derived from the probe sequence; the original singsing used TTL 100, a 32,768-byte window, and incrementing IP IDs. These values should not change normal open/closed results: TTL 64 is sufficient for typical paths, the window matters only after a handshake, and these small packets are not normally fragmented. They do produce a different observable fingerprint and may be treated differently by unusual middlebox rules.
+Rust probes use TTL 64, a 64,240-byte TCP window, and an IP ID derived from the probe sequence; the original `singsing` used TTL 100, a 32,768-byte window, and incrementing IP IDs. These values should not change normal open/closed results: TTL 64 is sufficient for typical paths, the window matters only after a handshake, and these small packets are not normally fragmented. They do produce a different observable fingerprint and may be treated differently by unusual middlebox rules.
 
 ### Response validation
 
-The original singsing primarily trusted TCP flags and a destination-port range. This implementation accepts a response only when its source host and port match an actual probe, its destination matches the scanner address and source port, and its acknowledgement number matches the transmitted sequence number. It then treats SYN/ACK as open and, when requested, RST as closed. This stricter correlation reduces false positives from unrelated TCP traffic, but ignores unusual RST responses without the expected acknowledgement number.
+The original `singsing` primarily trusted TCP flags and a destination-port range. This implementation accepts a response only when its source host and port match an actual probe, its destination matches the scanner address and source port, and its acknowledgement number matches the transmitted sequence number. It then treats SYN/ACK as open and, when requested, RST as closed. This stricter correlation reduces false positives from unrelated TCP traffic, but ignores unusual RST responses without the expected acknowledgement number.
 
 ### Source port behavior
 
@@ -178,7 +178,7 @@ The selected number can therefore overlap a port used by another local connectio
 
 A single scan is limited to 16,777,214 host/port pairs. This accommodates either one TCP port across all usable addresses of an IPv4 `/8`, or all 65,535 TCP ports across the 254 usable addresses of a `/24`. Full-port scans of networks larger than `/24` exceed the limit and must be split into `/24` or smaller scans. Larger networks can be scanned when the selected port count keeps the total number of host/port pairs within the limit.
 
-Unlike original singsing, which generated probes incrementally, this implementation expands all targets and builds an expected-response hash-table entry for every host/port pair before sending. Memory use therefore grows with the total number of pairs, not only with the number of responses. On a typical 64-bit build, a one-port scan of a full usable `/8` consumes roughly 500 MiB when few hosts answer. If every host returns an accepted response, the expected-response table, duplicate set, target list, and buffered results together require approximately 832 MiB; allocator and operating-system overhead can bring peak memory close to or above 1 GiB. The exact amount depends on the Rust toolchain and allocator. Split large scans when memory is constrained even if they are below the configured pair limit.
+Unlike original `singsing`, which generated probes incrementally, this implementation expands all targets and builds an expected-response hash-table entry for every host/port pair before sending. Memory use therefore grows with the total number of pairs, not only with the number of responses. On a typical 64-bit build, a one-port scan of a full usable `/8` consumes roughly 500 MiB when few hosts answer. If every host returns an accepted response, the expected-response table, duplicate set, target list, and buffered results together require approximately 832 MiB; allocator and operating-system overhead can bring peak memory close to or above 1 GiB. The exact amount depends on the Rust toolchain and allocator. Split large scans when memory is constrained even if they are below the configured pair limit.
 
 Networks larger than `/8` are rejected before their addresses are expanded, preventing oversized CIDRs such as `/7` or `/0` from exhausting memory before the scan limit can be checked. Library callers constructing `ScanConfig` directly must also provide unique target and port vectors; duplicate entries are rejected rather than silently producing inaccurate probe and progress counts.
 
