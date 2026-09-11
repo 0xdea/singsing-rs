@@ -14,43 +14,51 @@ Scanning raw IPv4/TCP packets requires root or `CAP_NET_RAW` on Linux; most logi
 ## Commands
 
 Build:
+
 ```sh
 cargo build --workspace --locked
 ```
 
 Lint (CI runs with `-D warnings`, i.e. all warnings are errors):
+
 ```sh
 cargo fmt --all --check
 cargo clippy --all-targets --workspace --locked -- -D warnings
 ```
 
 Docs (CI treats rustdoc warnings as errors too):
+
 ```sh
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 ```
 
 Unit tests and unprivileged integration tests:
+
 ```sh
 cargo test --workspace --locked
 ```
 
 Run a single test:
+
 ```sh
 cargo test --workspace --locked -- test_name
 cargo test -p singsing-rs --locked -- test_name   # scope to one crate
 ```
 
 Ignored, privileged Linux loopback integration tests (raw sockets against `127.0.0.1`; exercise open/closed ports, callbacks, timeouts, sorting, and full `zucchini` CLI output). They must run serially (concurrent raw receivers can observe each other's packets) and need root/`CAP_NET_RAW`:
+
 ```sh
 sudo --preserve-env=PATH,CARGO_HOME,RUSTUP_HOME \
   env CARGO_TARGET_DIR=/tmp/singsing-rs-privileged-target \
   cargo test --workspace --locked -- --ignored --test-threads=1
 ```
+
 Use a separate `CARGO_TARGET_DIR` so root-owned build artifacts don't end up in the repo's normal `target/`. These tests are compiled (not just skipped) during ordinary `cargo test`/CI runs, so API changes that break them are still caught even without running them.
 
 Run the scanner locally (needs privilege, see Configuration below):
+
 ```sh
-cargo run -p zucchini -- -h 192.0.2.10 -i eth0 -p 21-23,80,443
+cargo run -p zucchini -- -h 192.168.2.10 -i eth0 -p 21-23,80,443
 sudo setcap cap_net_raw=eip "$(command -v zucchini)"   # alternative to running as root
 ```
 

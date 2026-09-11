@@ -729,48 +729,48 @@ mod tests {
     #[test]
     fn parses_host_and_network() {
         assert_eq!(
-            parse_targets("192.0.2.9").unwrap(),
-            ["192.0.2.9".parse::<Ipv4Addr>().unwrap()]
+            parse_targets("192.168.2.9").unwrap(),
+            ["192.168.2.9".parse::<Ipv4Addr>().unwrap()]
         );
         assert_eq!(
-            parse_targets("192.0.2.0/30").unwrap(),
+            parse_targets("192.168.2.0/30").unwrap(),
             [
-                "192.0.2.1".parse::<Ipv4Addr>().unwrap(),
-                "192.0.2.2".parse::<Ipv4Addr>().unwrap()
+                "192.168.2.1".parse::<Ipv4Addr>().unwrap(),
+                "192.168.2.2".parse::<Ipv4Addr>().unwrap()
             ]
         );
         assert_eq!(
-            parse_targets("192.0.2.0/31").unwrap(),
+            parse_targets("192.168.2.0/31").unwrap(),
             [
-                "192.0.2.0".parse::<Ipv4Addr>().unwrap(),
-                "192.0.2.1".parse::<Ipv4Addr>().unwrap()
+                "192.168.2.0".parse::<Ipv4Addr>().unwrap(),
+                "192.168.2.1".parse::<Ipv4Addr>().unwrap()
             ]
         );
         assert_eq!(
-            parse_targets("192.0.2.7/32").unwrap(),
-            ["192.0.2.7".parse::<Ipv4Addr>().unwrap()]
+            parse_targets("192.168.2.7/32").unwrap(),
+            ["192.168.2.7".parse::<Ipv4Addr>().unwrap()]
         );
     }
 
     #[test]
     fn normalizes_host_bits_and_rejects_invalid_targets() {
         assert_eq!(
-            parse_targets("192.0.2.7/30").unwrap(),
+            parse_targets("192.168.2.7/30").unwrap(),
             [
-                "192.0.2.5".parse::<Ipv4Addr>().unwrap(),
-                "192.0.2.6".parse::<Ipv4Addr>().unwrap()
+                "192.168.2.5".parse::<Ipv4Addr>().unwrap(),
+                "192.168.2.6".parse::<Ipv4Addr>().unwrap()
             ]
         );
         assert!(parse_targets("").is_err());
         assert!(parse_targets("not-an-address").is_err());
-        assert!(parse_targets("192.0.2.1/33").is_err());
+        assert!(parse_targets("192.168.2.1/33").is_err());
     }
 
     #[test]
     fn rejects_oversized_cidr_before_expansion() {
         let slash_8 = "10.0.0.0/8".parse::<Ipv4Net>().unwrap();
-        let slash_31 = "192.0.2.0/31".parse::<Ipv4Net>().unwrap();
-        let slash_32 = "192.0.2.1/32".parse::<Ipv4Net>().unwrap();
+        let slash_31 = "192.168.2.0/31".parse::<Ipv4Net>().unwrap();
+        let slash_32 = "192.168.2.1/32".parse::<Ipv4Net>().unwrap();
 
         assert_eq!(usable_target_count(slash_8), Some(MAX_PROBES));
         assert_eq!(usable_target_count(slash_31), Some(2));
@@ -781,8 +781,8 @@ mod tests {
 
     #[test]
     fn builds_valid_syn_packet() {
-        let source = "192.0.2.1".parse().unwrap();
-        let destination = "198.51.100.2".parse().unwrap();
+        let source = "192.168.2.1".parse().unwrap();
+        let destination = "172.16.100.2".parse().unwrap();
         let sequence = 0x1234_5678;
         let bytes = syn_packet(source, destination, 50000, 443, sequence);
         let ipv4 = Ipv4Packet::new(&bytes).unwrap();
@@ -823,8 +823,8 @@ mod tests {
 
     #[test]
     fn accepts_open_response_once() {
-        let source = "192.0.2.1".parse().unwrap();
-        let target = "198.51.100.2".parse().unwrap();
+        let source = "192.168.2.1".parse().unwrap();
+        let target = "172.16.100.2".parse().unwrap();
         let source_port = 50000;
         let target_port = 443;
         let sequence = 0x1234_5678_u32;
@@ -870,9 +870,9 @@ mod tests {
 
     #[test]
     fn rejects_uncorrelated_responses() {
-        let source = "192.0.2.1".parse().unwrap();
-        let target = "198.51.100.2".parse().unwrap();
-        let other_target = "198.51.100.3".parse().unwrap();
+        let source = "192.168.2.1".parse().unwrap();
+        let target = "172.16.100.2".parse().unwrap();
+        let other_target = "172.16.100.3".parse().unwrap();
         let source_port = 50000;
         let target_port = 443;
         let sequence = 0x1234_5678_u32;
@@ -880,7 +880,7 @@ mod tests {
         let invalid_packets = [
             response_packet(
                 target,
-                "192.0.2.2".parse().unwrap(),
+                "192.168.2.2".parse().unwrap(),
                 target_port,
                 source_port,
                 sequence.wrapping_add(1),
@@ -936,8 +936,8 @@ mod tests {
 
     #[test]
     fn reports_closed_responses_only_when_requested() {
-        let source = "192.0.2.1".parse().unwrap();
-        let target = "198.51.100.2".parse().unwrap();
+        let source = "192.168.2.1".parse().unwrap();
+        let target = "172.16.100.2".parse().unwrap();
         let source_port = 50000;
         let target_port = 443;
         let sequence = 0x1234_5678_u32;
@@ -981,8 +981,8 @@ mod tests {
 
     #[test]
     fn ignores_truncated_and_unexpected_responses() {
-        let source = "192.0.2.1".parse().unwrap();
-        let target = "198.51.100.2".parse().unwrap();
+        let source = "192.168.2.1".parse().unwrap();
+        let target = "172.16.100.2".parse().unwrap();
         let source_port = 50000;
         let target_port = 443;
         let sequence = 0x1234_5678_u32;
@@ -1031,8 +1031,8 @@ mod tests {
 
     #[test]
     fn accepts_wrapped_acknowledgement_number() {
-        let source = "192.0.2.1".parse().unwrap();
-        let target = "198.51.100.2".parse().unwrap();
+        let source = "192.168.2.1".parse().unwrap();
+        let target = "172.16.100.2".parse().unwrap();
         let source_port = 50000;
         let target_port = 443;
         let expected = HashMap::from([((target, target_port), u32::MAX)]);
@@ -1073,7 +1073,7 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_scan_config_entries() {
-        let host = "192.0.2.1".parse().unwrap();
+        let host = "192.168.2.1".parse().unwrap();
         let duplicate_targets = ScanConfig::new(vec![host, host], vec![443], host);
         let duplicate_ports = ScanConfig::new(vec![host], vec![443, 443], host);
         let unique = ScanConfig::new(vec![host], vec![80, 443], host);
@@ -1128,7 +1128,7 @@ zero            0/tcp
     #[test]
     fn incomplete_scan_error_preserves_context() {
         let partial_result = ScanResult {
-            host: "198.51.100.2".parse().unwrap(),
+            host: "172.16.100.2".parse().unwrap(),
             port: 443,
             state: PortState::Open,
         };

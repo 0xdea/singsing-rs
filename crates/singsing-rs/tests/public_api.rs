@@ -17,7 +17,7 @@ fn scan_error(config: &ScanConfig) -> String {
 
 #[test]
 fn rejects_empty_scan_configuration() {
-    let source = address("192.0.2.1");
+    let source = address("192.168.2.1");
     let no_targets = ScanConfig::new(Vec::new(), vec![443], source);
     let no_ports = ScanConfig::new(vec![source], Vec::new(), source);
 
@@ -27,7 +27,7 @@ fn rejects_empty_scan_configuration() {
 
 #[test]
 fn rejects_excessive_scan_before_raw_socket_creation() {
-    let source = address("192.0.2.1");
+    let source = address("192.168.2.1");
     let targets = vec![source; 257];
     let ports = (1..=u16::MAX).collect();
     let config = ScanConfig::new(targets, ports, source);
@@ -37,7 +37,7 @@ fn rejects_excessive_scan_before_raw_socket_creation() {
 
 #[test]
 fn rejects_duplicate_targets_and_ports() {
-    let source = address("192.0.2.1");
+    let source = address("192.168.2.1");
     let duplicate_targets = ScanConfig::new(vec![source, source], vec![443], source);
     let duplicate_ports = ScanConfig::new(vec![source], vec![443, 443], source);
 

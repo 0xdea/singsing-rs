@@ -85,31 +85,31 @@ Choose an interface with `-i`/`--interface` whose IPv4 address can route to the 
 Scan selected ports on one host:
 
 ```sh
-zucchini -h 192.0.2.10 -i eth0 -p 21-23,80,443
+zucchini -h 192.168.2.10 -i eth0 -p 21-23,80,443
 ```
 
 Scan all ports on a `/24` subnet, including closed ports:
 
 ```sh
-zucchini -h 192.0.2.0/24 -i eth0 -p 1-65535 -c
+zucchini -h 192.168.2.0/24 -i eth0 -p 1-65535 -c
 ```
 
 Scan one port on a `/8` subnet, increasing the send rate bandwidth to 40 KiB/s:
 
 ```sh
-zucchini -h 192.0.0.0/8 -i eth0 -p 22 -b 40
+zucchini -h 192.168.0.0/8 -i eth0 -p 22 -b 40
 ```
 
 Scan TCP port entries from `/etc/services` on one host and wait only five seconds for late replies:
 
 ```sh
-zucchini -h 192.0.2.10 -i eth0 -t 5
+zucchini -h 192.168.2.10 -i eth0 -t 5
 ```
 
 Progress statistics with a local date/time ETA are printed every minute for the first ten minutes, every ten minutes through the first hour, and every thirty minutes thereafter. Use `-v`/`--verbose` to additionally print responses as soon as they arrive. The complete sorted results are always printed under a separate `Scan results:` heading when the scan finishes:
 
 ```sh
-zucchini -h 192.0.2.0/24 -i eth0 -p 22,80,443 -v
+zucchini -h 192.168.2.0/24 -i eth0 -p 22,80,443 -v
 ```
 
 Run `zucchini --help` for the complete command-line reference.
@@ -149,7 +149,7 @@ The scanner is intentionally Linux-focused. The release build and test suite hav
 
 ## TODO
 
-- Maybe port to macOS.
+- Maybe port to macOS (or even Windows) if there's interest.
 
 ## Implementation details
 
@@ -196,9 +196,9 @@ Library callers constructing `ScanConfig` directly must provide unique target an
 For networks from `/8` through `/30`, `zucchini` omits the network and broadcast addresses. A `/31` subnet is treated as a point-to-point network, so both its addresses are scanned. A `/32` scans its single address.
 
 ```text
-192.0.2.0/30 -> 192.0.2.1, 192.0.2.2
-192.0.2.0/31 -> 192.0.2.0, 192.0.2.1
-192.0.2.7/32 -> 192.0.2.7
+192.168.2.0/30 -> 192.168.2.1, 192.168.2.2
+192.168.2.0/31 -> 192.168.2.0, 192.168.2.1
+192.168.2.7/32 -> 192.168.2.7
 ```
 
 ### Error handling

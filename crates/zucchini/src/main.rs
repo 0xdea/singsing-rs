@@ -1,10 +1,15 @@
-//! Linux IPv4 SYN scanner command.
+#![doc = env!("CARGO_PKG_DESCRIPTION")]
+#![doc = ""]
+#![cfg_attr(doc, doc = include_str!("../../../README.md"))]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/0xdea/singsing-rs/master/.img/logo_zucchini.png"
+)]
 
 use std::io::{self, Write};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 use chrono::{DateTime, Duration as ChronoDuration, Local, TimeZone};
 use clap::Parser;
 use singsing_rs::{
@@ -12,9 +17,13 @@ use singsing_rs::{
     parse_ports, parse_targets, ports_from_services, scan_with_callbacks,
 };
 
-const PROGRAM: &str = "zucchini";
+/// Package name.
+const PROGRAM: &str = env!("CARGO_PKG_NAME");
+/// Package version.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Package description.
 const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
+/// Package authors.
 const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 
 /// Linux IPv4 SYN scanner based on singsing's zucca example.
@@ -260,7 +269,7 @@ mod tests {
         let arguments = Arguments::try_parse_from([
             "zucchini",
             "--host",
-            "192.0.2.0/24",
+            "192.168.2.0/24",
             "--interface",
             "eth0",
             "--bandwidth",
@@ -273,7 +282,7 @@ mod tests {
             "--verbose",
         ])?;
 
-        assert_eq!(arguments.host, "192.0.2.0/24");
+        assert_eq!(arguments.host, "192.168.2.0/24");
         assert_eq!(arguments.interface, "eth0");
         assert_eq!(arguments.bandwidth, 100);
         assert_eq!(arguments.ports.as_deref(), Some("22,80"));
@@ -308,7 +317,7 @@ mod tests {
     fn formats_banner_scan_and_completion_summaries() -> Result<()> {
         let mut output = Vec::new();
         write_banner_to(&mut output)?;
-        write_scan_summary(&mut output, 3, "eth0", "192.0.2.1".parse().unwrap())?;
+        write_scan_summary(&mut output, 3, "eth0", "192.168.2.1".parse().unwrap())?;
         write_done_summary(&mut output, 3, 30.14)?;
 
         assert_eq!(
@@ -317,7 +326,7 @@ mod tests {
                 "zucchini 0.1.0 - A blazing fast Linux IPv4 port scanner\n",
                 "Copyright (c) 2026 Marco Ivaldi <raptor@0xdeadbeef.info>\n",
                 "\n",
-                "Scanning: 3 host/port pairs via eth0 (192.0.2.1)...\n",
+                "Scanning: 3 host/port pairs via eth0 (192.168.2.1)...\n",
                 "\n",
                 "Done: 3 host/port pairs scanned in 30.1 seconds\n",
             )
@@ -328,12 +337,12 @@ mod tests {
     #[test]
     fn formats_empty_buffered_and_verbose_results() -> Result<()> {
         let open = ScanResult {
-            host: "198.51.100.2".parse().unwrap(),
+            host: "172.16.100.2".parse().unwrap(),
             port: 443,
             state: PortState::Open,
         };
         let closed = ScanResult {
-            host: "198.51.100.3".parse().unwrap(),
+            host: "172.16.100.3".parse().unwrap(),
             port: 80,
             state: PortState::Closed,
         };
@@ -347,8 +356,8 @@ mod tests {
             concat!(
                 "\n",
                 "Scan results:\n",
-                "open 198.51.100.2:443\n",
-                "closed 198.51.100.3:80\n",
+                "open 172.16.100.2:443\n",
+                "closed 172.16.100.3:80\n",
             )
         );
 
@@ -356,7 +365,7 @@ mod tests {
         write_result_to(&mut verbose, open, true)?;
         assert_eq!(
             String::from_utf8(verbose)?,
-            "[verbose] open 198.51.100.2:443\n"
+            "[verbose] open 172.16.100.2:443\n"
         );
         Ok(())
     }

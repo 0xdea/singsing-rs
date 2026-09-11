@@ -39,7 +39,7 @@ fn rejects_invalid_cli_before_printing_banner() {
     assert!(stdout(&missing).is_empty());
     assert!(stderr(&missing).contains("required arguments"));
 
-    let timeout = run(&["-h", "192.0.2.1", "-i", "lo", "--timeout", "0"]);
+    let timeout = run(&["-h", "192.168.2.1", "-i", "lo", "--timeout", "0"]);
     assert!(!timeout.status.success());
     assert!(stdout(&timeout).is_empty());
     assert!(stderr(&timeout).contains("timeout must be greater than zero"));
@@ -53,7 +53,7 @@ fn reports_invalid_targets_and_ports_without_raw_socket() {
     assert!(stderr(&target).contains("invalid IPv4 address"));
     assert!(!stdout(&target).contains("[!] Error"));
 
-    let ports = run(&["-h", "192.0.2.1", "-i", "lo", "-p", "80-79"]);
+    let ports = run(&["-h", "192.168.2.1", "-i", "lo", "-p", "80-79"]);
     assert!(!ports.status.success());
     assert!(stdout(&ports).starts_with("zucchini 0.1.0"));
     assert!(stderr(&ports).contains("reversed port range"));
@@ -70,7 +70,7 @@ fn rejects_oversized_target_before_expansion() {
 
 #[test]
 fn rejects_full_port_slash_23_before_raw_socket() {
-    let output = run(&["-h", "192.0.2.0/23", "-i", "lo", "-p", "1-65535"]);
+    let output = run(&["-h", "192.168.2.0/23", "-i", "lo", "-p", "1-65535"]);
 
     assert!(!output.status.success());
     assert!(stdout(&output).contains("Scanning: 33422850 host/port pairs"));
@@ -82,7 +82,7 @@ fn rejects_full_port_slash_23_before_raw_socket() {
 fn rejects_zero_bandwidth_before_raw_socket() {
     let output = run(&[
         "-h",
-        "192.0.2.1",
+        "192.168.2.1",
         "-i",
         "lo",
         "-p",
@@ -100,7 +100,7 @@ fn rejects_zero_bandwidth_before_raw_socket() {
 fn reports_nonexistent_interface_without_raw_socket() {
     let output = run(&[
         "-h",
-        "192.0.2.1",
+        "192.168.2.1",
         "-i",
         "zucchini-interface-does-not-exist",
         "-p",
