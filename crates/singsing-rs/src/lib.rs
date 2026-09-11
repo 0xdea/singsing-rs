@@ -1,46 +1,16 @@
 #![doc = env!("CARGO_PKG_DESCRIPTION")]
-
-//! Linux IPv4 SYN scanning primitives.
-//!
-//! The scanner sends raw TCP SYN packets and classifies SYN/ACK replies as
-//! open and RST replies as closed. Creating the raw transport socket requires
-//! root or the `CAP_NET_RAW` capability.
-//!
-//! One unbound source-port number is selected from `49152–65535` and reused
-//! for every probe in a scan. Because the port is not reserved, it can overlap
-//! a local connection; interference also requires that connection to use the
-//! same remote address and port.
-//!
-//! Responses must match an exact target host and port, the scanner's local
-//! address and source port, and the transmitted sequence number. SYN/ACK is
-//! classified as open; RST is optionally classified as closed.
-//!
-//! Probe pairs are sent in the unspecified order of a randomly seeded
-//! [`HashMap`]. This interleaves hosts and ports differently between runs,
-//! avoiding the predictable traversal used by a sequential scanner.
-//!
-//! Probes use TTL 64, a 64,240-byte TCP window, and a sequence-derived IP ID.
-//! These fields primarily affect the observable packet fingerprint rather than
-//! ordinary SYN-scan classification.
-//!
-//! Packet I/O uses pnet Layer-3 transport channels rather than libpcap:
-//! interface discovery, packet construction and parsing, and raw IPv4 sending
-//! and receiving are all handled through pnet. Response filtering occurs in
-//! this crate instead of through a libpcap BPF capture filter.
-//!
-//! Scans eagerly store every target and expected host/port response. Memory use
-//! therefore grows with the number of probes, unlike original singsing's
-//! incremental probe generation. A one-port scan of a usable `/8` can approach
-//! or exceed 1 GiB when every target responds; callers with constrained memory
-//! should split large scans even when they are below the configured probe limit.
+#![doc = ""]
+#![cfg_attr(doc, doc = include_str!("../../../README.md"))]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/0xdea/singsing-rs/master/.img/logo_singsing.png"
+)]
 
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{fmt, thread};
 
 use anyhow::{Context, Result, anyhow, bail};
 use ipnet::Ipv4Net;
