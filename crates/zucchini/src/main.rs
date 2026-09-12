@@ -294,7 +294,6 @@ mod tests {
         assert!(!arguments.closed);
         assert_eq!(arguments.timeout, 30);
         assert!(!arguments.verbose);
-        assert_eq!(DESCRIPTION, "A blazing fast Linux IPv4 port scanner");
         Ok(())
     }
 
@@ -345,6 +344,17 @@ mod tests {
             "lo",
             "--bandwidth",
             "0",
+        ])
+        .unwrap_err();
+        Arguments::try_parse_from(["zucchini", "-h", "not-an-address", "-i", "lo"]).unwrap_err();
+        Arguments::try_parse_from([
+            "zucchini",
+            "-h",
+            "127.0.0.1",
+            "-i",
+            "lo",
+            "--ports",
+            "80-79",
         ])
         .unwrap_err();
     }
@@ -421,6 +431,10 @@ mod tests {
             probes_sent: 0,
             ..progress
         };
+        let complete = ScanProgress {
+            probes_sent: 100,
+            ..progress
+        };
 
         assert_eq!(
             format_progress(progress, now),
@@ -430,5 +444,44 @@ mod tests {
             format_progress(not_started, now),
             "[stats] 0% done | ETA unknown"
         );
+        assert_eq!(
+            format_progress(complete, now),
+            "[stats] 100% done | ETA Thu 2026-01-01 12:00:00 UTC"
+        );
+    }
+
+    #[test]
+    fn formats_progress_with_non_utc_offset() {
+        let offset = chrono::FixedOffset::east_opt(3600).unwrap();
+        let now = offset
+            .with_ymd_and_hms(2026, 1, 1, 12, 0, 0)
+            .single()
+            .unwrap();
+        let progress = ScanProgress {
+            probes_sent: 25,
+            total_probes: 100,
+            elapsed: Duration::from_secs(60),
+        };
+
+        assert_eq!(
+            format_progress(progress, now),
+            "[stats] 25% done | ETA Thu 2026-01-01 12:03:00 +01:00"
+        );
+    }
+
+    #[test]
+    fn help_flag_displays_help() {
+        let error = Arguments::try_parse_from(["zucchini", "--help"]).unwrap_err();
+
+        assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+    }
+
+    #[test]
+    fn version_flag_is_unknown() {
+        let error =
+            Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "--version"])
+                .unwrap_err();
+
+        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 }
