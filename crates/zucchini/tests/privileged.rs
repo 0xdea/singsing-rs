@@ -70,7 +70,7 @@ fn scans_open_port_end_to_end() {
     let result = format!("open 127.0.0.1:{port}");
 
     assert!(output.status.success());
-    assert!(stdout(&output).starts_with("zucchini 0.1.0"));
+    assert!(stdout(&output).starts_with("zucchini "));
     assert!(stdout(&output).contains("Scanning: 1 host/port pairs via lo (127.0.0.1)"));
     assert!(stdout(&output).contains("Scan results:"));
     assert!(stdout(&output).contains(&result));
@@ -95,7 +95,7 @@ fn scans_open_port_in_verbose_mode() {
 #[ignore = "requires Linux and root or CAP_NET_RAW"]
 fn reports_closed_port_end_to_end() {
     let port = unused_loopback_port();
-    let output = run(port, &["--show-closed"]);
+    let output = run(port, &["--closed"]);
 
     assert!(output.status.success());
     assert!(

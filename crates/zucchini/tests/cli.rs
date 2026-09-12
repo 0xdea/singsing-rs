@@ -25,18 +25,22 @@ fn stderr(output: &Output) -> &str {
 }
 
 #[test]
-fn prints_help_and_version() {
+fn prints_help() {
     let help = run(&["--help"]);
     assert!(help.status.success());
     assert!(stdout(&help).contains("Usage: zucchini"));
     assert!(stdout(&help).contains("--host"));
     assert!(stdout(&help).contains("--verbose"));
-    assert!(stderr(&help).is_empty());
+    assert!(!stdout(&help).contains("--version"));
+    assert!(stderr(&help).starts_with("zucchini "));
+}
 
-    let version = run(&["--version"]);
-    assert!(version.status.success());
-    assert_eq!(stdout(&version), "zucchini 0.1.0\n");
-    assert!(stderr(&version).is_empty());
+#[test]
+fn rejects_version_flag() {
+    let output = run(&["--version"]);
+    assert!(!output.status.success());
+    assert!(stdout(&output).is_empty());
+    assert!(stderr(&output).contains("unexpected argument '--version'"));
 }
 
 #[test]
@@ -117,7 +121,8 @@ fn reports_nonexistent_interface_without_raw_socket() {
     ]);
 
     assert!(!output.status.success());
-    assert!(stdout(&output).starts_with("zucchini 0.1.0"));
+    assert!(stderr(&output).starts_with("zucchini "));
     assert!(stderr(&output).contains("does not exist"));
     assert!(!stderr(&output).contains("failed to create raw socket"));
+    assert!(stdout(&output).is_empty());
 }

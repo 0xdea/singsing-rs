@@ -58,35 +58,35 @@ impl str::FromStr for Ports {
     }
 }
 
-/// Linux IPv4 SYN scanner based on singsing's zucca example.
+/// Command-line arguments.
 #[derive(Debug, Parser)]
-#[command(version, disable_help_flag = true)]
+#[command(disable_help_flag = true, about = None)]
 struct Arguments {
-    /// Network interface used for the scan.
+    /// Network interface to use for the scan.
     #[arg(short = 'i', long)]
     interface: String,
 
-    /// Host or CIDR to scan (for example, 192.168.0.0/24).
+    /// IPv4 address or CIDR to scan (e.g., 192.168.0.0/24).
     #[arg(short = 'h', long)]
     host: Targets,
 
-    /// Ports (for example, 21-23,80,443); defaults to /etc/services.
+    /// Ports (e.g., 21-23,80,443) [defaults to ports from /etc/services].
     #[arg(short = 'p', long)]
     ports: Option<Ports>,
 
-    /// Display ports which reply with RST.
+    /// Display ports that reply with RST.
     #[arg(short = 'c', long)]
-    show_closed: bool,
+    closed: bool,
 
     /// Usable bandwidth in KiB/s.
     #[arg(short = 'b', long, default_value_t = 15, value_parser = clap::value_parser!(u64).range(1..))]
     bandwidth: u64,
 
-    /// Seconds to wait for replies after sending the final probe.
+    /// Seconds to wait after sending the final probe.
     #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..))]
     timeout: u64,
 
-    /// Stream tagged results as soon as they arrive.
+    /// Stream scan results as soon as they arrive.
     #[arg(short = 'v', long)]
     verbose: bool,
 
@@ -107,8 +107,8 @@ fn main() -> ExitCode {
 
 /// TODO: This should probably be merged with main.
 fn run() -> Result<()> {
-    let arguments = Arguments::parse();
     write_banner()?;
+    let arguments = Arguments::parse();
     let ports = arguments
         .ports
         .map(|Ports(ports)| ports)
@@ -118,7 +118,7 @@ fn run() -> Result<()> {
     let mut config = ScanConfig::new(arguments.host.0, ports, source);
     config.bandwidth_kib = arguments.bandwidth;
     config.timeout = Duration::from_secs(arguments.timeout);
-    config.show_closed = arguments.show_closed;
+    config.show_closed = arguments.closed;
 
     let probes = config
         .targets
@@ -204,8 +204,8 @@ fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> Result<(
 
 /// TODO: refactor.
 fn write_banner() -> Result<()> {
-    let stdout = io::stdout();
-    let mut output = stdout.lock();
+    let stderr = io::stderr();
+    let mut output = stderr.lock();
     write_banner_to(&mut output)?;
     output.flush().context("failed to flush program banner")?;
     Ok(())
@@ -291,7 +291,7 @@ mod tests {
         assert_eq!(arguments.interface, "lo");
         assert_eq!(arguments.bandwidth, 15);
         assert!(arguments.ports.is_none());
-        assert!(!arguments.show_closed);
+        assert!(!arguments.closed);
         assert_eq!(arguments.timeout, 30);
         assert!(!arguments.verbose);
         assert_eq!(DESCRIPTION, "A blazing fast Linux IPv4 port scanner");
@@ -310,7 +310,7 @@ mod tests {
             "100",
             "--ports",
             "22,80",
-            "--show-closed",
+            "--closed",
             "--timeout",
             "60",
             "--verbose",
@@ -323,7 +323,7 @@ mod tests {
             arguments.ports.map(|Ports(ports)| ports),
             Some(vec![22, 80])
         );
-        assert!(arguments.show_closed);
+        assert!(arguments.closed);
         assert_eq!(arguments.timeout, 60);
         assert!(arguments.verbose);
         Ok(())
