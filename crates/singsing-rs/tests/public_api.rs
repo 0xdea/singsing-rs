@@ -1,4 +1,10 @@
-//! Unprivileged black-box tests for the public singsing-rs API.
+//! Unprivileged integration tests for the public singsing-rs API.
+
+#![expect(
+    clippy::tests_outside_test_module,
+    reason = "no need to have a test module for integration tests in `/tests`"
+)]
+#![expect(clippy::expect_used, reason = "tests can use `expect`")]
 
 use std::net::Ipv4Addr;
 

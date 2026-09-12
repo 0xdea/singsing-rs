@@ -1,6 +1,13 @@
-//! Privileged loopback integration tests for the singsing-rs scanner.
+//! Privileged loopback integration tests for the singsing-rs library.
 
 #![cfg(target_os = "linux")]
+#![expect(
+    clippy::tests_outside_test_module,
+    reason = "no need to have a test module for integration tests in `/tests`"
+)]
+#![expect(clippy::panic, reason = "panics are allowed in test code")]
+#![expect(clippy::unwrap_used, reason = "tests can use `unwrap`")]
+#![expect(clippy::expect_used, reason = "tests can use `expect`")]
 
 use std::net::{Ipv4Addr, TcpListener};
 use std::sync::atomic::{AtomicU16, Ordering};
