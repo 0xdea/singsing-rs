@@ -6,6 +6,7 @@
 )]
 
 use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 use std::sync::Arc;
@@ -20,12 +21,14 @@ use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet, checksum as ipv4_checksum};
 use pnet::packet::tcp::{MutableTcpPacket, TcpFlags, TcpPacket, ipv4_checksum as tcp_checksum};
 use pnet::packet::{MutablePacket as _, Packet as _};
-use pnet::transport::{TransportChannelType, ipv4_packet_iter, transport_channel};
+use pnet::transport::{
+    TransportChannelType, TransportReceiver, ipv4_packet_iter, transport_channel,
+};
 
 /// The packet length used for scanning.
 const PACKET_LEN: usize = 40;
-/// The maximum number of probes to send during a scan (`16_777_214`).
-const MAX_PROBES: usize = 0x00FF_FFFE;
+/// The maximum number of probes to send during a scan.
+const MAX_PROBES: usize = 16_777_214;
 /// One minute duration.
 const ONE_MINUTE: Duration = Duration::from_mins(1);
 /// Ten minute duration.
@@ -99,8 +102,8 @@ impl fmt::Display for IncompleteScanError {
     }
 }
 
-impl std::error::Error for IncompleteScanError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl Error for IncompleteScanError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(self.source.as_ref())
     }
 }
@@ -427,6 +430,7 @@ pub fn scan_with_callbacks(
     Ok(results)
 }
 
+/// TODO.
 fn validate_scan(config: &ScanConfig) -> Result<usize> {
     validate_probe_count(
         config.targets.len(),
@@ -435,6 +439,7 @@ fn validate_scan(config: &ScanConfig) -> Result<usize> {
     )
 }
 
+/// TODO.
 fn usable_target_count(network: Ipv4Net) -> Option<usize> {
     let host_bits = 32_u32.checked_sub(u32::from(network.prefix_len()))?;
     match host_bits {
@@ -444,6 +449,7 @@ fn usable_target_count(network: Ipv4Net) -> Option<usize> {
     }
 }
 
+/// TODO.
 fn expected_responses(
     config: &ScanConfig,
     nonce: u32,
@@ -466,6 +472,7 @@ fn expected_responses(
     Ok(expected)
 }
 
+/// TODO.
 fn validate_probe_count(
     target_count: usize,
     port_count: usize,
@@ -489,6 +496,7 @@ fn validate_probe_count(
     Ok(probe_count)
 }
 
+/// TODO.
 fn advance_progress_deadline(mut deadline: Duration, elapsed: Duration) -> Duration {
     while deadline <= elapsed {
         deadline = next_progress_deadline(deadline);
@@ -496,6 +504,7 @@ fn advance_progress_deadline(mut deadline: Duration, elapsed: Duration) -> Durat
     deadline
 }
 
+/// TODO.
 fn next_progress_deadline(previous: Duration) -> Duration {
     let interval = if previous < TEN_MINUTES {
         ONE_MINUTE
@@ -507,6 +516,7 @@ fn next_progress_deadline(previous: Duration) -> Duration {
     previous + interval
 }
 
+/// TODO.
 fn parse_port(input: &str) -> Result<u16> {
     let port: u16 = input
         .parse()
@@ -517,10 +527,12 @@ fn parse_port(input: &str) -> Result<u16> {
     Ok(port)
 }
 
+/// TODO.
 fn source_port() -> u16 {
     49152 + (nonce() % 16384) as u16
 }
 
+/// TODO.
 fn nonce() -> u32 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -528,6 +540,7 @@ fn nonce() -> u32 {
         .subsec_nanos()
 }
 
+/// TODO.
 fn sequence(host: Ipv4Addr, port: u16, nonce: u32) -> u32 {
     u32::from(host)
         .rotate_left(13)
@@ -535,6 +548,7 @@ fn sequence(host: Ipv4Addr, port: u16, nonce: u32) -> u32 {
         ^ nonce
 }
 
+/// TODO.
 fn syn_packet(
     source: Ipv4Addr,
     destination: Ipv4Addr,
@@ -565,17 +579,25 @@ fn syn_packet(
     bytes
 }
 
+/// Configuration for receiving packets.
 struct ReceiveConfig<'a> {
+    /// Map of expected (source, port) pairs to sequence numbers.
     expected: &'a HashMap<(Ipv4Addr, u16), u32>,
+    /// Source IP address to filter packets by.
     source: Ipv4Addr,
+    /// Source port to filter packets by.
     source_port: u16,
+    /// Whether to show closed connections.
     show_closed: bool,
+    /// Atomic flag indicating when to stop receiving.
     done: &'a AtomicBool,
+    /// Timeout duration for receiving packets.
     timeout: Duration,
 }
 
+/// TODO.
 fn receive(
-    receiver: &mut pnet::transport::TransportReceiver,
+    receiver: &mut TransportReceiver,
     config: &ReceiveConfig<'_>,
     on_result: &mut impl FnMut(ScanResult) -> Result<()>,
 ) -> Result<Vec<ScanResult>> {
@@ -617,6 +639,7 @@ fn receive(
     Ok(results)
 }
 
+/// TODO.
 fn classify_response(
     ipv4: &Ipv4Packet<'_>,
     expected: &HashMap<(Ipv4Addr, u16), u32>,
@@ -654,7 +677,14 @@ fn classify_response(
 }
 
 #[cfg(test)]
+#[expect(clippy::panic_in_result_fn, reason = "panics are allowed in test code")]
+#[expect(clippy::unwrap_used, reason = "tests can use `unwrap`")]
 mod tests {
+    use std::error::Error;
+    use std::path::PathBuf;
+    use std::sync::atomic::AtomicUsize;
+    use std::{env, fs, process};
+
     use super::*;
 
     fn response_packet(
@@ -691,25 +721,22 @@ mod tests {
         show_closed: bool,
         seen: &mut HashSet<(Ipv4Addr, u16)>,
     ) -> Option<ScanResult> {
-        let ipv4 = Ipv4Packet::new(bytes).unwrap();
+        let ipv4 = Ipv4Packet::new(bytes)?;
         classify_response(&ipv4, expected, source, source_port, show_closed, seen)
     }
 
-    fn services_path() -> std::path::PathBuf {
-        static NEXT_FILE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    fn services_path() -> PathBuf {
+        static NEXT_FILE: AtomicUsize = AtomicUsize::new(0);
 
         let number = NEXT_FILE.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!(
-            "singsing-rs-services-{}-{number}",
-            std::process::id()
-        ))
+        env::temp_dir().join(format!("singsing-rs-services-{}-{number}", process::id()))
     }
 
     fn services_from(contents: &str) -> Result<Vec<u16>> {
         let path = services_path();
-        std::fs::write(&path, contents)?;
+        fs::write(&path, contents)?;
         let result = ports_from_services(&path);
-        std::fs::remove_file(path)?;
+        fs::remove_file(path)?;
         result
     }
 
@@ -720,10 +747,10 @@ mod tests {
 
     #[test]
     fn rejects_invalid_ports() {
-        assert!(parse_ports("0").is_err());
-        assert!(parse_ports("80-79").is_err());
-        assert!(parse_ports("65536").is_err());
-        assert!(parse_ports("22,").is_err());
+        parse_ports("0").unwrap_err();
+        parse_ports("80-79").unwrap_err();
+        parse_ports("65536").unwrap_err();
+        parse_ports("22,").unwrap_err();
     }
 
     #[test]
@@ -761,9 +788,9 @@ mod tests {
                 "192.168.2.6".parse::<Ipv4Addr>().unwrap()
             ]
         );
-        assert!(parse_targets("").is_err());
-        assert!(parse_targets("not-an-address").is_err());
-        assert!(parse_targets("192.168.2.1/33").is_err());
+        parse_targets("").unwrap_err();
+        parse_targets("not-an-address").unwrap_err();
+        parse_targets("192.168.2.1/33").unwrap_err();
     }
 
     #[test]
@@ -775,8 +802,8 @@ mod tests {
         assert_eq!(usable_target_count(slash_8), Some(MAX_PROBES));
         assert_eq!(usable_target_count(slash_31), Some(2));
         assert_eq!(usable_target_count(slash_32), Some(1));
-        assert!(parse_targets("10.0.0.0/7").is_err());
-        assert!(parse_targets("0.0.0.0/0").is_err());
+        parse_targets("10.0.0.0/7").unwrap_err();
+        parse_targets("0.0.0.0/0").unwrap_err();
     }
 
     #[test]
@@ -1063,12 +1090,12 @@ mod tests {
         assert_eq!(validate_probe_count(254, 65_535, 15).unwrap(), 16_645_890);
         assert_eq!(validate_probe_count(256, 65_535, 15).unwrap(), 16_776_960);
         assert_eq!(validate_probe_count(MAX_PROBES, 1, 15).unwrap(), MAX_PROBES);
-        assert!(validate_probe_count(257, 65_535, 15).is_err());
-        assert!(validate_probe_count(MAX_PROBES + 1, 1, 15).is_err());
-        assert!(validate_probe_count(usize::MAX, 2, 15).is_err());
-        assert!(validate_probe_count(0, 1, 15).is_err());
-        assert!(validate_probe_count(1, 0, 15).is_err());
-        assert!(validate_probe_count(1, 1, 0).is_err());
+        validate_probe_count(257, 65_535, 15).unwrap_err();
+        validate_probe_count(MAX_PROBES + 1, 1, 15).unwrap_err();
+        validate_probe_count(usize::MAX, 2, 15).unwrap_err();
+        validate_probe_count(0, 1, 15).unwrap_err();
+        validate_probe_count(1, 0, 15).unwrap_err();
+        validate_probe_count(1, 1, 0).unwrap_err();
     }
 
     #[test]
@@ -1114,7 +1141,7 @@ zero            0/tcp
 
     #[test]
     fn rejects_services_file_without_tcp_ports() {
-        assert!(services_from("domain 53/udp\n# comment\nmalformed\n").is_err());
+        services_from("domain 53/udp\n# comment\nmalformed\n").unwrap_err();
     }
 
     #[test]
@@ -1147,7 +1174,7 @@ zero            0/tcp
             "scan stopped after sending 7 of 10 probes"
         );
         assert_eq!(
-            std::error::Error::source(&incomplete).unwrap().to_string(),
+            Error::source(&incomplete).unwrap().to_string(),
             "send failed"
         );
 
