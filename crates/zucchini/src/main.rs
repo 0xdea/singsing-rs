@@ -143,7 +143,7 @@ fn run() -> anyhow::Result<()> {
         &config,
         move |result| {
             if verbose {
-                write_result(result, true, true)
+                write_verbose_result(result)
             } else {
                 Ok(())
             }
@@ -225,23 +225,19 @@ fn write_banner() -> Result<()> {
 
 /// Writes the program banner to the given output stream.
 fn write_banner_to(output: &mut impl Write) -> Result<()> {
-    writeln!(output, "{PROGRAM} {VERSION} - {DESCRIPTION}")
-        .context("failed to write program banner")?;
-    writeln!(output, "Copyright (c) 2026 {AUTHORS}")
-        .context("failed to write program copyright")?;
-    writeln!(output).context("failed to write program banner spacing")?;
-    Ok(())
+    write!(
+        output,
+        "{PROGRAM} {VERSION} - {DESCRIPTION}\nCopyright (c) 2026 {AUTHORS}\n\n"
+    )
+    .context("failed to write program banner")
 }
 
-/// Writes the scan result to stdout.
-fn write_result(result: ScanResult, verbose: bool, flush: bool) -> Result<()> {
+/// Writes a verbose scan result to stdout, flushed immediately for live feedback.
+fn write_verbose_result(result: ScanResult) -> Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
-    write_result_to(&mut output, result, verbose)?;
-    if flush {
-        output.flush().context("failed to flush scan result")?;
-    }
-    Ok(())
+    write_result_to(&mut output, result, true)?;
+    output.flush().context("failed to flush scan result")
 }
 
 /// Writes the scan result to the given output stream.
@@ -251,13 +247,9 @@ fn write_result_to(output: &mut impl Write, result: ScanResult, verbose: bool) -
         PortState::Closed => "closed",
         _ => "unknown",
     };
-    if verbose {
-        writeln!(output, "[verbose] {state} {}:{}", result.host, result.port)
-            .context("failed to write verbose scan result")?;
-    } else {
-        writeln!(output, "{state} {}:{}", result.host, result.port)
-            .context("failed to write scan result")?;
-    }
+    let prefix = if verbose { "[verbose] " } else { "" };
+    writeln!(output, "{prefix}{state} {}:{}", result.host, result.port)
+        .context("failed to write scan result")?;
     Ok(())
 }
 
