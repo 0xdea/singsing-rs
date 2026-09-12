@@ -9,7 +9,7 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 use chrono::{DateTime, Duration as ChronoDuration, Local, TimeZone};
 use clap::Parser;
 use singsing_rs::{
@@ -39,7 +39,7 @@ struct Arguments {
     interface: String,
 
     /// Usable bandwidth in KiB/s.
-    #[arg(short = 'b', long, default_value_t = 15)]
+    #[arg(short = 'b', long, default_value_t = 15, value_parser = clap::value_parser!(u64).range(1..))]
     bandwidth: u64,
 
     /// Ports (for example, 22,23,40-50,99); defaults to /etc/services.
@@ -51,7 +51,7 @@ struct Arguments {
     show_closed: bool,
 
     /// Seconds to wait for replies after sending the final probe.
-    #[arg(short = 't', long, default_value_t = 30)]
+    #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..))]
     timeout: u64,
 
     /// Stream tagged results as soon as they arrive.
@@ -75,7 +75,6 @@ fn main() -> ExitCode {
 
 fn run() -> Result<()> {
     let arguments = Arguments::parse();
-    validate_arguments(&arguments)?;
     write_banner()?;
     let targets = parse_targets(&arguments.host)?;
     let ports = arguments
@@ -129,13 +128,6 @@ fn run() -> Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
     write_done_summary(&mut output, probes, started.elapsed().as_secs_f64())?;
-    Ok(())
-}
-
-fn validate_arguments(arguments: &Arguments) -> Result<()> {
-    if arguments.timeout == 0 {
-        bail!("timeout must be greater than zero");
-    }
     Ok(())
 }
 
@@ -300,16 +292,30 @@ mod tests {
             Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "--unknown"])
                 .is_err()
         );
-        let zero_timeout = Arguments::try_parse_from([
-            "zucchini",
-            "-h",
-            "127.0.0.1",
-            "-i",
-            "lo",
-            "--timeout",
-            "0",
-        ])?;
-        assert!(validate_arguments(&zero_timeout).is_err());
+        assert!(
+            Arguments::try_parse_from([
+                "zucchini",
+                "-h",
+                "127.0.0.1",
+                "-i",
+                "lo",
+                "--timeout",
+                "0",
+            ])
+            .is_err()
+        );
+        assert!(
+            Arguments::try_parse_from([
+                "zucchini",
+                "-h",
+                "127.0.0.1",
+                "-i",
+                "lo",
+                "--bandwidth",
+                "0",
+            ])
+            .is_err()
+        );
         Ok(())
     }
 

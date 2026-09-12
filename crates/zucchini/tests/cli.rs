@@ -42,7 +42,7 @@ fn rejects_invalid_cli_before_printing_banner() {
     let timeout = run(&["-h", "192.168.2.1", "-i", "lo", "--timeout", "0"]);
     assert!(!timeout.status.success());
     assert!(stdout(&timeout).is_empty());
-    assert!(stderr(&timeout).contains("timeout must be greater than zero"));
+    assert!(stderr(&timeout).contains("invalid value '0' for '--timeout <TIMEOUT>'"));
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn rejects_full_port_slash_23_before_raw_socket() {
 }
 
 #[test]
-fn rejects_zero_bandwidth_before_raw_socket() {
+fn rejects_zero_bandwidth_before_printing_banner() {
     let output = run(&[
         "-h",
         "192.168.2.1",
@@ -92,7 +92,8 @@ fn rejects_zero_bandwidth_before_raw_socket() {
     ]);
 
     assert!(!output.status.success());
-    assert!(stderr(&output).contains("bandwidth must be greater than zero"));
+    assert!(stdout(&output).is_empty());
+    assert!(stderr(&output).contains("invalid value '0' for '--bandwidth <BANDWIDTH>'"));
     assert!(!stderr(&output).contains("failed to create raw socket"));
 }
 
