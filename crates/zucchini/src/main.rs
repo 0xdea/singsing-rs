@@ -154,6 +154,24 @@ fn run() -> anyhow::Result<()> {
     write_done_summary(probes, started.elapsed().as_secs_f64())
 }
 
+/// Prints the program banner to stderr, flushed immediately.
+fn write_banner() -> anyhow::Result<()> {
+    let stderr = io::stderr();
+    let mut output = stderr.lock();
+    write_banner_to(&mut output)?;
+    output.flush().context("failed to flush program banner")?;
+    Ok(())
+}
+
+/// Writes the program banner to the given output stream.
+fn write_banner_to(output: &mut impl Write) -> anyhow::Result<()> {
+    write!(
+        output,
+        "{PROGRAM} {VERSION} - {DESCRIPTION}\nCopyright (c) 2026 {AUTHORS}\n\n"
+    )
+    .context("failed to write program banner")
+}
+
 /// Writes the scan summary to stderr, flushed before the scan starts.
 fn write_scan_summary(probes: usize, interface: &str, source: Ipv4Addr) -> anyhow::Result<()> {
     let stderr = io::stderr();
@@ -162,7 +180,7 @@ fn write_scan_summary(probes: usize, interface: &str, source: Ipv4Addr) -> anyho
     output.flush().context("failed to flush scan summary")
 }
 
-/// Writes a scan summary to the specified output stream.
+/// Writes the scan summary to the specified output stream.
 fn write_scan_summary_to(
     output: &mut impl Write,
     probes: usize,
@@ -183,7 +201,7 @@ fn write_done_summary(probes: usize, elapsed: f64) -> anyhow::Result<()> {
     write_done_summary_to(&mut output, probes, elapsed)
 }
 
-/// Writes a done summary to the specified output stream.
+/// Writes the done summary to the specified output stream.
 fn write_done_summary_to(
     output: &mut impl Write,
     probes: usize,
@@ -214,24 +232,6 @@ fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> anyhow::
     Ok(())
 }
 
-/// Prints the program banner to stderr.
-fn write_banner() -> anyhow::Result<()> {
-    let stderr = io::stderr();
-    let mut output = stderr.lock();
-    write_banner_to(&mut output)?;
-    output.flush().context("failed to flush program banner")?;
-    Ok(())
-}
-
-/// Writes the program banner to the given output stream.
-fn write_banner_to(output: &mut impl Write) -> anyhow::Result<()> {
-    write!(
-        output,
-        "{PROGRAM} {VERSION} - {DESCRIPTION}\nCopyright (c) 2026 {AUTHORS}\n\n"
-    )
-    .context("failed to write program banner")
-}
-
 /// Writes a verbose scan result to stdout, flushed immediately for live feedback.
 fn write_verbose_result(result: ScanResult) -> anyhow::Result<()> {
     let stdout = io::stdout();
@@ -240,7 +240,7 @@ fn write_verbose_result(result: ScanResult) -> anyhow::Result<()> {
     output.flush().context("failed to flush scan result")
 }
 
-/// Writes the scan result to the given output stream.
+/// Writes a scan result to the given output stream.
 fn write_result_to(
     output: &mut impl Write,
     result: ScanResult,
@@ -257,7 +257,7 @@ fn write_result_to(
     Ok(())
 }
 
-/// Writes the scan progress to stderr.
+/// Writes the scan progress to stderr, flushed immediately.
 fn write_progress(progress: ScanProgress) -> anyhow::Result<()> {
     let line = format_progress(progress, Local::now());
     let stderr = io::stderr();
