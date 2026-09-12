@@ -9,6 +9,7 @@ use std::io::{self, Write};
 use std::net::Ipv4Addr;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
+use std::{fmt, str};
 
 use anyhow::{Context as _, Result};
 use chrono::{DateTime, Duration as ChronoDuration, Local, TimeZone};
@@ -35,7 +36,7 @@ const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 #[derive(Debug, Clone)]
 struct Targets(Vec<Ipv4Addr>);
 
-impl std::str::FromStr for Targets {
+impl str::FromStr for Targets {
     type Err = anyhow::Error;
 
     fn from_str(input: &str) -> Result<Self> {
@@ -49,7 +50,7 @@ impl std::str::FromStr for Targets {
 #[derive(Debug, Clone)]
 struct Ports(Vec<u16>);
 
-impl std::str::FromStr for Ports {
+impl str::FromStr for Ports {
     type Err = anyhow::Error;
 
     fn from_str(input: &str) -> Result<Self> {
@@ -104,6 +105,7 @@ fn main() -> ExitCode {
     }
 }
 
+/// TODO: This should probably be merged with main.
 fn run() -> Result<()> {
     let arguments = Arguments::parse();
     write_banner()?;
@@ -159,11 +161,12 @@ fn run() -> Result<()> {
     Ok(())
 }
 
+/// TODO: refactor.
 fn write_scan_summary(
     output: &mut impl Write,
     probes: usize,
     interface: &str,
-    source: std::net::Ipv4Addr,
+    source: Ipv4Addr,
 ) -> Result<()> {
     writeln!(
         output,
@@ -172,6 +175,7 @@ fn write_scan_summary(
     .context("failed to write scan summary")
 }
 
+/// TODO: refactor.
 fn write_done_summary(output: &mut impl Write, probes: usize, elapsed: f64) -> Result<()> {
     writeln!(
         output,
@@ -180,12 +184,14 @@ fn write_done_summary(output: &mut impl Write, probes: usize, elapsed: f64) -> R
     .context("failed to write scan completion")
 }
 
+/// TODO: refactor.
 fn write_results(results: &[ScanResult]) -> Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
     write_results_to(&mut output, results)
 }
 
+/// TODO: refactor.
 fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> Result<()> {
     if !results.is_empty() {
         writeln!(output, "\nScan results:").context("failed to write results heading")?;
@@ -196,6 +202,7 @@ fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> Result<(
     Ok(())
 }
 
+/// TODO: refactor.
 fn write_banner() -> Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
@@ -204,6 +211,7 @@ fn write_banner() -> Result<()> {
     Ok(())
 }
 
+/// TODO: refactor.
 fn write_banner_to(output: &mut impl Write) -> Result<()> {
     writeln!(output, "{PROGRAM} {VERSION} - {DESCRIPTION}")
         .context("failed to write program banner")?;
@@ -213,6 +221,7 @@ fn write_banner_to(output: &mut impl Write) -> Result<()> {
     Ok(())
 }
 
+/// TODO: refactor.
 fn write_result(result: ScanResult, verbose: bool, flush: bool) -> Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
@@ -223,6 +232,7 @@ fn write_result(result: ScanResult, verbose: bool, flush: bool) -> Result<()> {
     Ok(())
 }
 
+/// TODO: refactor.
 fn write_result_to(output: &mut impl Write, result: ScanResult, verbose: bool) -> Result<()> {
     let state = match result.state {
         PortState::Open => "open",
@@ -239,6 +249,7 @@ fn write_result_to(output: &mut impl Write, result: ScanResult, verbose: bool) -
     Ok(())
 }
 
+/// TODO: refactor.
 fn write_progress(progress: ScanProgress) -> Result<()> {
     let line = format_progress(progress, Local::now());
     let stderr = io::stderr();
@@ -248,10 +259,11 @@ fn write_progress(progress: ScanProgress) -> Result<()> {
     Ok(())
 }
 
+/// TODO: refactor.
 fn format_progress<Tz>(progress: ScanProgress, now: DateTime<Tz>) -> String
 where
     Tz: TimeZone,
-    Tz::Offset: std::fmt::Display,
+    Tz::Offset: fmt::Display,
 {
     let eta = progress
         .estimated_remaining()
@@ -265,6 +277,8 @@ where
 }
 
 #[cfg(test)]
+#[expect(clippy::panic_in_result_fn, reason = "panics are allowed in test code")]
+#[expect(clippy::unwrap_used, reason = "tests can use `unwrap`")]
 mod tests {
     use super::*;
 
@@ -316,45 +330,30 @@ mod tests {
     }
 
     #[test]
-    fn rejects_missing_unknown_and_invalid_options() -> Result<()> {
-        assert!(Arguments::try_parse_from(["zucchini", "-i", "lo"]).is_err());
-        assert!(Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1"]).is_err());
-        assert!(
-            Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "--unknown"])
-                .is_err()
-        );
-        assert!(
-            Arguments::try_parse_from([
-                "zucchini",
-                "-h",
-                "127.0.0.1",
-                "-i",
-                "lo",
-                "--timeout",
-                "0",
-            ])
-            .is_err()
-        );
-        assert!(
-            Arguments::try_parse_from([
-                "zucchini",
-                "-h",
-                "127.0.0.1",
-                "-i",
-                "lo",
-                "--bandwidth",
-                "0",
-            ])
-            .is_err()
-        );
-        Ok(())
+    fn rejects_missing_unknown_and_invalid_options() {
+        Arguments::try_parse_from(["zucchini", "-i", "lo"]).unwrap_err();
+        Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1"]).unwrap_err();
+        Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "--unknown"])
+            .unwrap_err();
+        Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "--timeout", "0"])
+            .unwrap_err();
+        Arguments::try_parse_from([
+            "zucchini",
+            "-h",
+            "127.0.0.1",
+            "-i",
+            "lo",
+            "--bandwidth",
+            "0",
+        ])
+        .unwrap_err();
     }
 
     #[test]
     fn formats_banner_scan_and_completion_summaries() -> Result<()> {
         let mut output = Vec::new();
         write_banner_to(&mut output)?;
-        write_scan_summary(&mut output, 3, "eth0", "192.168.2.1".parse().unwrap())?;
+        write_scan_summary(&mut output, 3, "eth0", "192.168.2.1".parse()?)?;
         write_done_summary(&mut output, 3, 30.14)?;
 
         assert_eq!(
@@ -374,12 +373,12 @@ mod tests {
     #[test]
     fn formats_empty_buffered_and_verbose_results() -> Result<()> {
         let open = ScanResult {
-            host: "172.16.100.2".parse().unwrap(),
+            host: "172.16.100.2".parse()?,
             port: 443,
             state: PortState::Open,
         };
         let closed = ScanResult {
-            host: "172.16.100.3".parse().unwrap(),
+            host: "172.16.100.3".parse()?,
             port: 80,
             state: PortState::Closed,
         };
