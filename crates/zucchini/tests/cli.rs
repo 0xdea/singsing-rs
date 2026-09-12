@@ -46,16 +46,17 @@ fn rejects_invalid_cli_before_printing_banner() {
 }
 
 #[test]
-fn reports_invalid_targets_and_ports_without_raw_socket() {
+fn reports_invalid_targets_and_ports_before_printing_banner() {
     let target = run(&["-h", "not-an-address", "-i", "lo", "-p", "80"]);
     assert!(!target.status.success());
-    assert!(stdout(&target).starts_with("zucchini 0.1.0"));
+    assert!(stdout(&target).is_empty());
+    assert!(stderr(&target).contains("invalid value 'not-an-address' for '--host <HOST>'"));
     assert!(stderr(&target).contains("invalid IPv4 address"));
-    assert!(!stdout(&target).contains("[!] Error"));
 
     let ports = run(&["-h", "192.168.2.1", "-i", "lo", "-p", "80-79"]);
     assert!(!ports.status.success());
-    assert!(stdout(&ports).starts_with("zucchini 0.1.0"));
+    assert!(stdout(&ports).is_empty());
+    assert!(stderr(&ports).contains("invalid value '80-79' for '--ports <PORTS>'"));
     assert!(stderr(&ports).contains("reversed port range"));
 }
 
@@ -64,7 +65,7 @@ fn rejects_oversized_target_before_expansion() {
     let output = run(&["-h", "10.0.0.0/7", "-i", "lo", "-p", "80"]);
 
     assert!(!output.status.success());
-    assert!(stdout(&output).starts_with("zucchini 0.1.0"));
+    assert!(stdout(&output).is_empty());
     assert!(stderr(&output).contains("split networks larger than a /8"));
 }
 

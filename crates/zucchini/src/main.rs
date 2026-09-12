@@ -6,6 +6,7 @@
 )]
 
 use std::io::{self, Write};
+use std::net::Ipv4Addr;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
@@ -26,13 +27,43 @@ const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 /// Package authors.
 const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 
+/// IPv4 scan targets parsed from a `--host` argument.
+///
+/// Wrapped in a newtype so clap treats a single `--host` occurrence as one
+/// parsed value rather than inferring multi-occurrence behavior from a bare
+/// `Vec<Ipv4Addr>` field type.
+#[derive(Debug, Clone)]
+struct Targets(Vec<Ipv4Addr>);
+
+impl std::str::FromStr for Targets {
+    type Err = anyhow::Error;
+
+    fn from_str(input: &str) -> Result<Self> {
+        parse_targets(input).map(Self)
+    }
+}
+
+/// TCP ports parsed from a `--ports` argument.
+///
+/// Wrapped in a newtype for the same reason as [`Targets`].
+#[derive(Debug, Clone)]
+struct Ports(Vec<u16>);
+
+impl std::str::FromStr for Ports {
+    type Err = anyhow::Error;
+
+    fn from_str(input: &str) -> Result<Self> {
+        parse_ports(input).map(Self)
+    }
+}
+
 /// Linux IPv4 SYN scanner based on singsing's zucca example.
 #[derive(Debug, Parser)]
-#[command(name = PROGRAM, version, disable_help_flag = true)]
+#[command(disable_help_flag = true)]
 struct Arguments {
     /// Host or CIDR to scan (for example, 192.168.0.0/24).
     #[arg(short = 'h', long)]
-    host: String,
+    host: Targets,
 
     /// Network interface used for the scan.
     #[arg(short = 'i', long)]
@@ -44,7 +75,7 @@ struct Arguments {
 
     /// Ports (for example, 22,23,40-50,99); defaults to /etc/services.
     #[arg(short = 'p', long)]
-    ports: Option<String>,
+    ports: Option<Ports>,
 
     /// Display ports which reply with RST.
     #[arg(short = 'c', long)]
@@ -76,16 +107,13 @@ fn main() -> ExitCode {
 fn run() -> Result<()> {
     let arguments = Arguments::parse();
     write_banner()?;
-    let targets = parse_targets(&arguments.host)?;
     let ports = arguments
         .ports
-        .as_deref()
-        .map(parse_ports)
-        .transpose()?
+        .map(|Ports(ports)| ports)
         .map_or_else(|| ports_from_services("/etc/services"), Ok)?;
     let source = interface_ipv4(&arguments.interface)?;
 
-    let mut config = ScanConfig::new(targets, ports, source);
+    let mut config = ScanConfig::new(arguments.host.0, ports, source);
     config.bandwidth_kib = arguments.bandwidth;
     config.timeout = Duration::from_secs(arguments.timeout);
     config.show_closed = arguments.show_closed;
@@ -245,10 +273,10 @@ mod tests {
         let arguments =
             Arguments::try_parse_from(["zucchini", "--host", "127.0.0.1", "--interface", "lo"])?;
 
-        assert_eq!(arguments.host, "127.0.0.1");
+        assert_eq!(arguments.host.0, ["127.0.0.1".parse::<Ipv4Addr>()?]);
         assert_eq!(arguments.interface, "lo");
         assert_eq!(arguments.bandwidth, 15);
-        assert_eq!(arguments.ports, None);
+        assert!(arguments.ports.is_none());
         assert!(!arguments.show_closed);
         assert_eq!(arguments.timeout, 30);
         assert!(!arguments.verbose);
@@ -274,10 +302,13 @@ mod tests {
             "--verbose",
         ])?;
 
-        assert_eq!(arguments.host, "192.168.2.0/24");
+        assert_eq!(arguments.host.0, parse_targets("192.168.2.0/24")?);
         assert_eq!(arguments.interface, "eth0");
         assert_eq!(arguments.bandwidth, 100);
-        assert_eq!(arguments.ports.as_deref(), Some("22,80"));
+        assert_eq!(
+            arguments.ports.map(|Ports(ports)| ports),
+            Some(vec![22, 80])
+        );
         assert!(arguments.show_closed);
         assert_eq!(arguments.timeout, 60);
         assert!(arguments.verbose);
