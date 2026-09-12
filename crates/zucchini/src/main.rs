@@ -154,10 +154,10 @@ fn run() -> Result<()> {
     write_done_summary(probes, started.elapsed().as_secs_f64())
 }
 
-/// Writes the scan summary to stdout, flushed before the scan starts.
+/// Writes the scan summary to stderr, flushed before the scan starts.
 fn write_scan_summary(probes: usize, interface: &str, source: Ipv4Addr) -> Result<()> {
-    let stdout = io::stdout();
-    let mut output = stdout.lock();
+    let stderr = io::stderr();
+    let mut output = stderr.lock();
     write_scan_summary_to(&mut output, probes, interface, source)?;
     output.flush().context("failed to flush scan summary")
 }

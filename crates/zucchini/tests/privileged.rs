@@ -71,7 +71,7 @@ fn scans_open_port_end_to_end() {
 
     assert!(output.status.success());
     assert!(stderr(&output).starts_with("zucchini "));
-    assert!(stdout(&output).contains("Scanning: 1 host/port pairs via lo (127.0.0.1)"));
+    assert!(stderr(&output).contains("Scanning: 1 host/port pairs via lo (127.0.0.1)"));
     assert!(stdout(&output).contains("Scan results:"));
     assert!(stdout(&output).contains(&result));
     assert!(stderr(&output).contains("Done: 1 host/port pairs scanned"));

@@ -85,7 +85,8 @@ fn rejects_full_port_slash_23_before_raw_socket() {
     let output = run(&["-h", "192.168.2.0/23", "-i", "lo", "-p", "1-65535"]);
 
     assert!(!output.status.success());
-    assert!(stdout(&output).contains("Scanning: 33422850 host/port pairs"));
+    assert!(stdout(&output).is_empty());
+    assert!(stderr(&output).contains("Scanning: 33422850 host/port pairs"));
     assert!(stderr(&output).contains("maximum is 16777214"));
     assert!(!stderr(&output).contains("failed to create raw socket"));
 }
