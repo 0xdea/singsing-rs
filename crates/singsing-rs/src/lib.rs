@@ -418,9 +418,9 @@ pub fn scan_with_callbacks(
         .join()
         .map_err(|_| anyhow!("packet receiver thread panicked"))??;
     results.sort_unstable_by_key(|result| (u32::from(result.host), result.port));
-    if let Err(source) = send_result {
+    if let Err(e) = send_result {
         return Err(IncompleteScanError {
-            source,
+            source: e,
             partial_results: results,
             probes_sent,
             total_probes: probe_count,

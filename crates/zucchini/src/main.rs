@@ -95,19 +95,22 @@ struct Arguments {
     help: Option<bool>,
 }
 
+/// Entry point.
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("[!] Error: {error:#}");
+        Err(e) => {
+            eprintln!("[!] Error: {e:#}");
             ExitCode::FAILURE
         }
     }
 }
 
-/// TODO: This should probably be merged with main.
+/// Runs the main scan logic.
 fn run() -> anyhow::Result<()> {
     write_banner()?;
+
+    // Parse command line arguments.
     let arguments = Arguments::parse();
     let ports = arguments
         .ports
@@ -115,11 +118,13 @@ fn run() -> anyhow::Result<()> {
         .map_or_else(|| ports_from_services("/etc/services"), Ok)?;
     let source = interface_ipv4(&arguments.interface)?;
 
+    // Configure scan parameters.
     let mut config = ScanConfig::new(arguments.host.0, ports, source);
     config.bandwidth_kib = arguments.bandwidth;
     config.timeout = Duration::from_secs(arguments.timeout);
     config.show_closed = arguments.closed;
 
+    // Write scan summary.
     let probes = config
         .targets
         .len()
@@ -131,6 +136,7 @@ fn run() -> anyhow::Result<()> {
     output.flush().context("failed to flush scan summary")?;
     drop(output);
 
+    // Start the scan.
     let started = Instant::now();
     let verbose = arguments.verbose;
     let scan_result = scan_with_callbacks(
@@ -144,24 +150,30 @@ fn run() -> anyhow::Result<()> {
         },
         write_progress,
     );
+
+    // Handle scan result.
     match scan_result {
         Ok(results) => {
             write_results(&results)?;
         }
-        Err(error) => {
-            if let Some(incomplete) = error.downcast_ref::<IncompleteScanError>() {
+        Err(e) => {
+            if let Some(incomplete) = e.downcast_ref::<IncompleteScanError>() {
                 write_results(incomplete.partial_results())?;
             }
-            return Err(error);
+            return Err(e);
         }
     }
     let stderr = io::stderr();
+    #[expect(clippy::shadow_unrelated, reason = "output was dropped earlier")]
     let mut output = stderr.lock();
+
+    // Write done summary.
     write_done_summary(&mut output, probes, started.elapsed().as_secs_f64())?;
+
     Ok(())
 }
 
-/// TODO: refactor.
+/// Writes a scan summary to the specified output stream.
 fn write_scan_summary(
     output: &mut impl Write,
     probes: usize,
@@ -175,7 +187,7 @@ fn write_scan_summary(
     .context("failed to write scan summary")
 }
 
-/// TODO: refactor.
+/// Writes a done summary to the specified output stream.
 fn write_done_summary(output: &mut impl Write, probes: usize, elapsed: f64) -> Result<()> {
     writeln!(
         output,
@@ -184,14 +196,14 @@ fn write_done_summary(output: &mut impl Write, probes: usize, elapsed: f64) -> R
     .context("failed to write scan completion")
 }
 
-/// TODO: refactor.
+/// Writes the results to stdout.
 fn write_results(results: &[ScanResult]) -> Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
     write_results_to(&mut output, results)
 }
 
-/// TODO: refactor.
+/// Writes the results to the given output stream.
 fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> Result<()> {
     if !results.is_empty() {
         writeln!(output, "\nScan results:").context("failed to write results heading")?;
@@ -202,7 +214,7 @@ fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> Result<(
     Ok(())
 }
 
-/// TODO: refactor.
+/// Prints the program banner to stderr.
 fn write_banner() -> Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
@@ -211,7 +223,7 @@ fn write_banner() -> Result<()> {
     Ok(())
 }
 
-/// TODO: refactor.
+/// Writes the program banner to the given output stream.
 fn write_banner_to(output: &mut impl Write) -> Result<()> {
     writeln!(output, "{PROGRAM} {VERSION} - {DESCRIPTION}")
         .context("failed to write program banner")?;
@@ -221,7 +233,7 @@ fn write_banner_to(output: &mut impl Write) -> Result<()> {
     Ok(())
 }
 
-/// TODO: refactor.
+/// Writes the scan result to stdout.
 fn write_result(result: ScanResult, verbose: bool, flush: bool) -> Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
@@ -232,7 +244,7 @@ fn write_result(result: ScanResult, verbose: bool, flush: bool) -> Result<()> {
     Ok(())
 }
 
-/// TODO: refactor.
+/// Writes the scan result to the given output stream.
 fn write_result_to(output: &mut impl Write, result: ScanResult, verbose: bool) -> Result<()> {
     let state = match result.state {
         PortState::Open => "open",
@@ -249,7 +261,7 @@ fn write_result_to(output: &mut impl Write, result: ScanResult, verbose: bool) -
     Ok(())
 }
 
-/// TODO: refactor.
+/// Writes the scan progress to stderr.
 fn write_progress(progress: ScanProgress) -> Result<()> {
     let line = format_progress(progress, Local::now());
     let stderr = io::stderr();
@@ -259,7 +271,7 @@ fn write_progress(progress: ScanProgress) -> Result<()> {
     Ok(())
 }
 
-/// TODO: refactor.
+/// Formats the scan progress as a string.
 fn format_progress<Tz>(progress: ScanProgress, now: DateTime<Tz>) -> String
 where
     Tz: TimeZone,
