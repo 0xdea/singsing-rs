@@ -95,7 +95,6 @@ struct Arguments {
     help: Option<bool>,
 }
 
-/// Entry point.
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -107,38 +106,30 @@ fn main() -> ExitCode {
 }
 
 /// Runs the main scan logic.
-fn run() -> anyhow::Result<()> {
+fn run() -> Result<()> {
     write_banner()?;
 
-    // Parse command line arguments.
-    let arguments = Arguments::parse();
-    let ports = arguments
+    let args = Arguments::parse();
+    let ports = args
         .ports
         .map(|Ports(ports)| ports)
         .map_or_else(|| ports_from_services("/etc/services"), Ok)?;
-    let source = interface_ipv4(&arguments.interface)?;
+    let source = interface_ipv4(&args.interface)?;
 
-    // Configure scan parameters.
-    let mut config = ScanConfig::new(arguments.host.0, ports, source);
-    config.bandwidth_kib = arguments.bandwidth;
-    config.timeout = Duration::from_secs(arguments.timeout);
-    config.show_closed = arguments.closed;
+    let mut config = ScanConfig::new(args.host.0, ports, source);
+    config.bandwidth_kib = args.bandwidth;
+    config.timeout = Duration::from_secs(args.timeout);
+    config.show_closed = args.closed;
 
-    // Write scan summary.
     let probes = config
         .targets
         .len()
         .checked_mul(config.ports.len())
         .context("scan size overflow")?;
-    let stdout = io::stdout();
-    let mut output = stdout.lock();
-    write_scan_summary(&mut output, probes, &arguments.interface, source)?;
-    output.flush().context("failed to flush scan summary")?;
-    drop(output);
+    write_scan_summary(probes, &args.interface, source)?;
 
-    // Start the scan.
     let started = Instant::now();
-    let verbose = arguments.verbose;
+    let verbose = args.verbose;
     let scan_result = scan_with_callbacks(
         &config,
         move |result| {
@@ -151,11 +142,8 @@ fn run() -> anyhow::Result<()> {
         write_progress,
     );
 
-    // Handle scan result.
     match scan_result {
-        Ok(results) => {
-            write_results(&results)?;
-        }
+        Ok(results) => write_results(&results)?,
         Err(e) => {
             if let Some(incomplete) = e.downcast_ref::<IncompleteScanError>() {
                 write_results(incomplete.partial_results())?;
@@ -163,18 +151,19 @@ fn run() -> anyhow::Result<()> {
             return Err(e);
         }
     }
-    let stderr = io::stderr();
-    #[expect(clippy::shadow_unrelated, reason = "output was dropped earlier")]
-    let mut output = stderr.lock();
+    write_done_summary(probes, started.elapsed().as_secs_f64())
+}
 
-    // Write done summary.
-    write_done_summary(&mut output, probes, started.elapsed().as_secs_f64())?;
-
-    Ok(())
+/// Writes the scan summary to stdout, flushed before the scan starts.
+fn write_scan_summary(probes: usize, interface: &str, source: Ipv4Addr) -> Result<()> {
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    write_scan_summary_to(&mut output, probes, interface, source)?;
+    output.flush().context("failed to flush scan summary")
 }
 
 /// Writes a scan summary to the specified output stream.
-fn write_scan_summary(
+fn write_scan_summary_to(
     output: &mut impl Write,
     probes: usize,
     interface: &str,
@@ -187,8 +176,15 @@ fn write_scan_summary(
     .context("failed to write scan summary")
 }
 
+/// Writes the done summary to stderr.
+fn write_done_summary(probes: usize, elapsed: f64) -> Result<()> {
+    let stderr = io::stderr();
+    let mut output = stderr.lock();
+    write_done_summary_to(&mut output, probes, elapsed)
+}
+
 /// Writes a done summary to the specified output stream.
-fn write_done_summary(output: &mut impl Write, probes: usize, elapsed: f64) -> Result<()> {
+fn write_done_summary_to(output: &mut impl Write, probes: usize, elapsed: f64) -> Result<()> {
     writeln!(
         output,
         "\nDone: {probes} host/port pairs scanned in {elapsed:.1} seconds"
@@ -357,8 +353,8 @@ mod tests {
     fn formats_banner_scan_and_completion_summaries() -> Result<()> {
         let mut output = Vec::new();
         write_banner_to(&mut output)?;
-        write_scan_summary(&mut output, 3, "eth0", "192.168.2.1".parse()?)?;
-        write_done_summary(&mut output, 3, 30.14)?;
+        write_scan_summary_to(&mut output, 3, "eth0", "192.168.2.1".parse()?)?;
+        write_done_summary_to(&mut output, 3, 30.14)?;
 
         assert_eq!(
             String::from_utf8(output)?,
