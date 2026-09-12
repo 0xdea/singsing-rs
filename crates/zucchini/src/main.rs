@@ -62,25 +62,25 @@ impl str::FromStr for Ports {
 #[derive(Debug, Parser)]
 #[command(version, disable_help_flag = true)]
 struct Arguments {
-    /// Host or CIDR to scan (for example, 192.168.0.0/24).
-    #[arg(short = 'h', long)]
-    host: Targets,
-
     /// Network interface used for the scan.
     #[arg(short = 'i', long)]
     interface: String,
 
-    /// Usable bandwidth in KiB/s.
-    #[arg(short = 'b', long, default_value_t = 15, value_parser = clap::value_parser!(u64).range(1..))]
-    bandwidth: u64,
+    /// Host or CIDR to scan (for example, 192.168.0.0/24).
+    #[arg(short = 'h', long)]
+    host: Targets,
 
-    /// Ports (for example, 22,23,40-50,99); defaults to /etc/services.
+    /// Ports (for example, 21-23,80,443); defaults to /etc/services.
     #[arg(short = 'p', long)]
     ports: Option<Ports>,
 
     /// Display ports which reply with RST.
     #[arg(short = 'c', long)]
     show_closed: bool,
+
+    /// Usable bandwidth in KiB/s.
+    #[arg(short = 'b', long, default_value_t = 15, value_parser = clap::value_parser!(u64).range(1..))]
+    bandwidth: u64,
 
     /// Seconds to wait for replies after sending the final probe.
     #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..))]

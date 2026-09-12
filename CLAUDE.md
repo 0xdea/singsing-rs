@@ -58,7 +58,7 @@ Use a separate `CARGO_TARGET_DIR` so root-owned build artifacts don't end up in 
 Run the scanner locally (needs privilege, see Configuration below):
 
 ```sh
-cargo run -p zucchini -- -h 192.168.2.10 -i eth0 -p 21-23,80,443
+cargo run -p zucchini -- -i eth0 -h 192.168.2.10 -p 21-23,80,443
 sudo setcap cap_net_raw=eip "$(command -v zucchini)"   # alternative to running as root
 ```
 

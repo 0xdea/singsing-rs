@@ -20,7 +20,7 @@ The [`zucchini`](https://github.com/0xdea/singsing-rs/tree/master/crates/zucchin
 
 ## How it works
 
-The scanner creates raw IPv4/TCP packets, sends bandwidth-limited SYN probes, and asynchronously validates response acknowledgement numbers before reporting SYN/ACK responses as open or, optionally, RST responses as closed. Target hosts that do not reply are treated as filtered or unreachable and are not printed in the output.
+The scanner creates raw IPv4/TCP packets, sends bandwidth-limited SYN probes, and asynchronously validates response acknowledgement numbers before reporting SYN/ACK responses as open and, optionally, RST responses as closed. Target host/port pairs that do not reply are treated as filtered or unreachable and are not printed in the output.
 
 > [!NOTE]
 > Creating the raw transport socket requires root or the `CAP_NET_RAW` capability.
@@ -75,42 +75,38 @@ The `zucchini` scanner uses a raw transport socket. Either run it as root, or gr
 sudo setcap cap_net_raw=eip "$(command -v zucchini)"
 ```
 
-Choose an interface with `-i`/`--interface` whose IPv4 address can route to the targets. You can list available interfaces with `ip -brief address`.
+Choose a network interface with `-i`/`--interface` whose IPv4 address can route to the targets. You can list available interfaces with `ip -brief address`.
 
 ## Usage
 
 > [!WARNING]
 > Only scan systems you own or have explicit permission to test.
 
-Scan selected ports on one host:
+Scan the selected ports on one host:
 
 ```sh
-zucchini -h 192.168.2.10 -i eth0 -p 21-23,80,443
+zucchini -i eth0 -h 192.168.2.10 -p 21-23,80,443
 ```
 
 Scan all ports on a `/24` subnet, including closed ports:
 
 ```sh
-zucchini -h 192.168.2.0/24 -i eth0 -p 1-65535 -c
+zucchini -i eth0 -h 192.168.2.0/24 -p 1-65535 -c
 ```
 
-Scan one port on a `/8` subnet, increasing the send rate bandwidth to 40 KiB/s:
+Scan one port on a `/8` subnet, with a send rate bandwidth of 40 KiB/s:
 
 ```sh
-zucchini -h 192.168.0.0/8 -i eth0 -p 22 -b 40
+zucchini -i eth0 -h 192.168.0.0/8 -p 22 -b 40
 ```
 
 Scan TCP port entries from `/etc/services` on one host and wait only five seconds for late replies:
 
 ```sh
-zucchini -h 192.168.2.10 -i eth0 -t 5
+zucchini -i eth0 -h 192.168.2.10 -t 5
 ```
 
-Progress statistics with a local date/time ETA are printed every minute for the first ten minutes, every ten minutes through the first hour, and every thirty minutes thereafter. Use `-v`/`--verbose` to additionally print responses as soon as they arrive. The complete sorted results are always printed under a separate `Scan results:` heading when the scan finishes:
-
-```sh
-zucchini -h 192.168.2.0/24 -i eth0 -p 22,80,443 -v
-```
+Progress statistics with a local date/time ETA are printed every minute for the first ten minutes, every ten minutes through the first hour, and every thirty minutes thereafter. Use `-v`/`--verbose` to additionally print responses as soon as they arrive. The complete sorted results are always printed under a separate `Scan results:` heading when the scan finishes.
 
 Run `zucchini --help` for the complete command-line reference.
 
@@ -125,7 +121,7 @@ Run the unit tests and unprivileged integration tests normally:
 cargo test --workspace --locked
 ```
 
-Ignored Linux loopback integration tests exercise live raw-socket scanning, open and closed ports, callbacks, timeout handling, sorting, and complete `zucchini` output. They require root or `CAP_NET_RAW` and must run serially because concurrent raw receivers could observe each other's packets. Run them manually as follows:
+Ignored privileged loopback integration tests exercise live raw-socket scanning, open and closed ports, callbacks, timeout handling, sorting, and complete `zucchini` output. They require root or `CAP_NET_RAW` and must run serially because concurrent raw receivers could observe each other's packets. Run them manually as follows:
 
 ```sh
 sudo --preserve-env=PATH,CARGO_HOME,RUSTUP_HOME \
@@ -137,7 +133,7 @@ The separate target directory prevents Cargo from leaving root-owned build artif
 
 ## Compatibility
 
-The scanner is intentionally Linux-focused. The release build and test suite have been verified on Ubuntu Linux 24.04 (`aarch64` and `x86_64`).
+The scanner is intentionally Linux-only. The release build and test suite have been verified to work on Ubuntu Linux 24.04 (`x86_64` and `aarch64`).
 
 ## Credits
 
@@ -161,11 +157,13 @@ Unlike the original `singsing`, which sent probes with a raw socket and captured
 
 The default bandwidth is 15 KiB/s. With the Rust scanner's 40-byte IPv4/TCP header accounting, this corresponds to approximately 384 SYN probes per second. Override it with `-b`/`--bandwidth`.
 
-The original `singsing` calibrated transmission by sending test SYNs to the local host, then adjusted a sleep after groups of roughly ten packets using a 58-byte packet estimate. This implementation sends no calibration traffic: it schedules each probe against an absolute deadline using its 40-byte IPv4/TCP header size. The deadline approach is smoother and automatically accounts for ordinary send overhead, and the same bandwidth value permits about 45% more SYNs per second than the original 58-byte calculation.
+The original `singsing` calibrated transmission by sending test SYNs to the local host, then adjusted a sleep after groups of roughly ten packets using a 58-byte packet estimate. This implementation sends no calibration traffic: it schedules each probe against an absolute deadline. This approach is smoother and automatically accounts for ordinary send overhead, and the same bandwidth value permits about 45% more SYNs per second than the original 58-byte calculation.
 
 ### Transmission order
 
-The original `zucca` used a deterministic segmented traversal: for each port, it walked large address ranges with a bandwidth-derived stride, falling back to sequential hosts for small ranges. This implementation stores exact host/port pairs in a randomly seeded `HashMap` and sends them in its unspecified iteration order. Consequently, hosts and ports are interleaved differently between runs rather than following a predictable sequence. This improves scan stealthiness by avoiding an obvious sequential pattern.
+The original `zucca` used a deterministic segmented traversal: for each port, it walked large address ranges with a bandwidth-derived stride, falling back to sequential hosts for small ranges.
+
+This implementation stores exact host/port pairs in a randomly seeded `HashMap` and sends them in an unspecified iteration order. Consequently, hosts and ports are interleaved differently between runs rather than following a predictable sequence. This improves scan stealthiness by avoiding an obvious sequential pattern.
 
 ### Packet fingerprint
 
@@ -193,7 +191,7 @@ Library callers constructing `ScanConfig` directly must provide unique target an
 
 ### Target handling
 
-For networks from `/8` through `/30`, `zucchini` omits the network and broadcast addresses. A `/31` subnet is treated as a point-to-point network, so both its addresses are scanned. A `/32` scans its single address.
+For networks from `/8` through `/30`, `zucchini` skips the network and broadcast addresses. A `/31` subnet is treated as a point-to-point network, so both its addresses are scanned. If a `/32` subnet is specified as target, its single address is scanned.
 
 ```text
 192.168.2.0/30 -> 192.168.2.1, 192.168.2.2
