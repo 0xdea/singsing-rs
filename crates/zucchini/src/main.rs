@@ -5,11 +5,12 @@
     html_logo_url = "https://raw.githubusercontent.com/0xdea/singsing-rs/master/.img/logo_zucchini.png"
 )]
 
+use std::fmt;
 use std::io::{self, Write};
 use std::net::Ipv4Addr;
 use std::process::ExitCode;
+use std::str::FromStr;
 use std::time::{Duration, Instant};
-use std::{fmt, str};
 
 use anyhow::{Context as _, Result};
 use chrono::{DateTime, Duration as ChronoDuration, Local, TimeZone};
@@ -30,13 +31,12 @@ const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 
 /// IPv4 scan targets parsed from a `--host` argument.
 ///
-/// Wrapped in a newtype so clap treats a single `--host` occurrence as one
-/// parsed value rather than inferring multi-occurrence behavior from a bare
-/// `Vec<Ipv4Addr>` field type.
+/// Wrapped in a newtype so clap treats a single `--host` occurrence as one parsed value rather than inferring
+/// multi-occurrence behavior from a bare `Vec<Ipv4Addr>` field type.
 #[derive(Debug, Clone)]
 struct Targets(Vec<Ipv4Addr>);
 
-impl str::FromStr for Targets {
+impl FromStr for Targets {
     type Err = anyhow::Error;
 
     fn from_str(input: &str) -> Result<Self> {
@@ -50,7 +50,7 @@ impl str::FromStr for Targets {
 #[derive(Debug, Clone)]
 struct Ports(Vec<u16>);
 
-impl str::FromStr for Ports {
+impl FromStr for Ports {
     type Err = anyhow::Error;
 
     fn from_str(input: &str) -> Result<Self> {
@@ -106,7 +106,7 @@ fn main() -> ExitCode {
 }
 
 /// TODO: This should probably be merged with main.
-fn run() -> Result<()> {
+fn run() -> anyhow::Result<()> {
     write_banner()?;
     let arguments = Arguments::parse();
     let ports = arguments

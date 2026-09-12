@@ -70,7 +70,7 @@ fn scans_open_port_end_to_end() {
     let result = format!("open 127.0.0.1:{port}");
 
     assert!(output.status.success());
-    assert!(stdout(&output).starts_with("zucchini "));
+    assert!(stderr(&output).starts_with("zucchini "));
     assert!(stdout(&output).contains("Scanning: 1 host/port pairs via lo (127.0.0.1)"));
     assert!(stdout(&output).contains("Scan results:"));
     assert!(stdout(&output).contains(&result));
