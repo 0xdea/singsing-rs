@@ -5,6 +5,9 @@
     html_logo_url = "https://raw.githubusercontent.com/0xdea/singsing-rs/master/.img/logo_singsing.png"
 )]
 
+#[cfg(not(target_os = "linux"))]
+compile_error!("singsing-rs only supports Linux (see the Compatibility section in README.md)");
+
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr};

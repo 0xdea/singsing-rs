@@ -1,4 +1,4 @@
-//! Privileged loopback integration tests for the zucchini binary.
+//! Privileged Linux loopback integration tests for the zucchini binary.
 
 #![cfg(target_os = "linux")]
 #![expect(

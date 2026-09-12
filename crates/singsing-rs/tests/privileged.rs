@@ -1,4 +1,4 @@
-//! Privileged loopback integration tests for the singsing-rs library.
+//! Privileged Linux loopback integration tests for the singsing-rs library.
 
 #![cfg(target_os = "linux")]
 #![expect(
