@@ -1,6 +1,13 @@
-//! Unprivileged black-box tests for the zucchini command-line interface.
+//! Unprivileged integration tests for the zucchini binary.
+
+#![expect(
+    clippy::tests_outside_test_module,
+    reason = "no need to have a test module for integration tests in `/tests`"
+)]
+#![expect(clippy::expect_used, reason = "tests can use `expect`")]
 
 use std::process::{Command, Output};
+use std::str;
 
 fn run(arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_zucchini"))
@@ -10,11 +17,11 @@ fn run(arguments: &[&str]) -> Output {
 }
 
 fn stdout(output: &Output) -> &str {
-    std::str::from_utf8(&output.stdout).expect("stdout should be UTF-8")
+    str::from_utf8(&output.stdout).expect("stdout should be UTF-8")
 }
 
 fn stderr(output: &Output) -> &str {
-    std::str::from_utf8(&output.stderr).expect("stderr should be UTF-8")
+    str::from_utf8(&output.stderr).expect("stderr should be UTF-8")
 }
 
 #[test]

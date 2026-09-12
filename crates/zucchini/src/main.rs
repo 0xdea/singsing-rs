@@ -59,7 +59,7 @@ impl std::str::FromStr for Ports {
 
 /// Linux IPv4 SYN scanner based on singsing's zucca example.
 #[derive(Debug, Parser)]
-#[command(disable_help_flag = true)]
+#[command(version, disable_help_flag = true)]
 struct Arguments {
     /// Host or CIDR to scan (for example, 192.168.0.0/24).
     #[arg(short = 'h', long)]

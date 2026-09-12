@@ -1,9 +1,17 @@
-//! Privileged loopback integration tests for the zucchini executable.
+//! Privileged loopback integration tests for the zucchini binary.
 
 #![cfg(target_os = "linux")]
+#![expect(
+    clippy::tests_outside_test_module,
+    reason = "no need to have a test module for integration tests in `/tests`"
+)]
+#![expect(clippy::panic, reason = "panics are allowed in test code")]
+#![expect(clippy::unwrap_used, reason = "tests can use `unwrap`")]
+#![expect(clippy::expect_used, reason = "tests can use `expect`")]
 
 use std::net::{Ipv4Addr, TcpListener};
 use std::process::{Command, Output};
+use std::str;
 use std::sync::atomic::{AtomicU16, Ordering};
 
 fn loopback_listener() -> TcpListener {
@@ -46,11 +54,11 @@ fn run(port: u16, extra_arguments: &[&str]) -> Output {
 }
 
 fn stdout(output: &Output) -> &str {
-    std::str::from_utf8(&output.stdout).expect("stdout should be UTF-8")
+    str::from_utf8(&output.stdout).expect("stdout should be UTF-8")
 }
 
 fn stderr(output: &Output) -> &str {
-    std::str::from_utf8(&output.stderr).expect("stderr should be UTF-8")
+    str::from_utf8(&output.stderr).expect("stderr should be UTF-8")
 }
 
 #[test]
