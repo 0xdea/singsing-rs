@@ -31,7 +31,7 @@ See [below](https://github.com/0xdea/singsing-rs#implementation-details) for the
 
 - Support for IPv4 hosts and CIDR ranges to scan.
 - Support for comma-separated ports and inclusive port ranges to scan.
-- Support for TCP ports from `/etc/services` if target ports are not specified.
+- Support for getting TCP ports from `/etc/services` if target ports are not specified.
 - Optional reporting of closed ports.
 - Configurable bandwidth and response timeout.
 - Progress statistics printed while scanning.
@@ -69,7 +69,7 @@ cargo build --release --locked
 
 ## Configuration
 
-The `zucchini` scanner uses a raw transport socket. Either run it as root, or grant the installed binary only the capability it needs:
+The `zucchini` scanner uses a raw transport socket. Either run it as root, or grant the installed binary the capability it needs:
 
 ```sh
 sudo setcap cap_net_raw=eip "$(command -v zucchini)"
@@ -88,7 +88,7 @@ Scan the selected ports on one host:
 zucchini -i eth0 -h 192.168.2.10 -p 21-23,80,443
 ```
 
-Scan all ports on a `/24` subnet, including closed ports:
+Scan all ports on a `/24` subnet, and report also closed ports:
 
 ```sh
 zucchini -i eth0 -h 192.168.2.0/24 -p 1-65535 -c
@@ -100,7 +100,7 @@ Scan one port on a `/8` subnet, with a send rate bandwidth of 40 KiB/s:
 zucchini -i eth0 -h 192.168.0.0/8 -p 22 -b 40
 ```
 
-Scan TCP port entries from `/etc/services` on one host and wait only five seconds for late replies:
+Scan TCP port entries from `/etc/services` on one host, and wait only five seconds for late replies:
 
 ```sh
 zucchini -i eth0 -h 192.168.2.10 -t 5
@@ -157,13 +157,11 @@ Unlike the original `singsing`, which sent probes with a raw socket and captured
 
 The default bandwidth is 15 KiB/s. With the Rust scanner's 40-byte IPv4/TCP header accounting, this corresponds to approximately 384 SYN probes per second. Override it with `-b`/`--bandwidth`.
 
-The original `singsing` calibrated transmission by sending test SYNs to the local host, then adjusted a sleep after groups of roughly ten packets using a 58-byte packet estimate. This implementation sends no calibration traffic: it schedules each probe against an absolute deadline. This approach is smoother and automatically accounts for ordinary send overhead, and the same bandwidth value permits about 45% more SYNs per second than the original 58-byte calculation.
+Unlike the original `singsing`, this implementation does not send calibration traffic: instead, it schedules each probe against an absolute deadline. This approach is smoother and automatically accounts for ordinary send overhead, and the same bandwidth value permits about 45% more SYNs per second than the original 58-byte calculation.
 
 ### Transmission order
 
-The original `zucca` used a deterministic segmented traversal: for each port, it walked large address ranges with a bandwidth-derived stride, falling back to sequential hosts for small ranges.
-
-This implementation stores exact host/port pairs in a randomly seeded `HashMap` and sends them in an unspecified iteration order. Consequently, hosts and ports are interleaved differently between runs rather than following a predictable sequence. This improves scan stealthiness by avoiding an obvious sequential pattern.
+The original `zucca` used a deterministic target traversal. This implementation, instead, stores exact host/port pairs in a randomly seeded `HashMap` and sends them in an unspecified iteration order. Consequently, hosts and ports are interleaved differently between runs rather than following a predictable sequence. This improves scan stealthiness by avoiding an obvious sequential pattern.
 
 ### Packet fingerprint
 
@@ -171,19 +169,19 @@ Rust probes use TTL 64, a 64,240-byte TCP window, and an IP ID derived from the 
 
 ### Response validation
 
-The original `singsing` primarily trusted TCP flags and a destination-port range. This implementation accepts a response only when its source host and port match an actual probe, its destination matches the scanner address and source port, and its acknowledgement number matches the transmitted sequence number. It then treats SYN/ACK as open and, when requested, RST as closed. This stricter correlation reduces false positives from unrelated TCP traffic, but ignores unusual RST responses without the expected acknowledgement number.
+The original `singsing` primarily trusted TCP flags and a destination-port range. This implementation accepts a response only when its source host and port match an actual probe, its destination matches the scanner address and source port, and its acknowledgement number matches the transmitted sequence number. It then treats SYN/ACK as open and, when requested, RST as closed. This stricter correlation reduces false positives from unrelated TCP traffic, but ignores unusual responses without the expected acknowledgement number.
 
 ### Source port behavior
 
 Each scan selects one TCP source-port number from the `49152–65535` range and reuses it for every raw SYN probe. The scanner writes this number directly into the TCP headers; it does not bind or reserve a local TCP socket.
 
-The selected port number can therefore overlap a port used by another local connection. TCP connections are identified by their complete local and remote address/port tuple, so interference additionally requires the scan to target the same remote address and port. This is unlikely in typical use but is worth considering on busy scanning hosts with existing connections to the targets.
+The selected port number can therefore overlap a port used by another local connection. TCP connections are identified by their complete local and remote address/port tuple, so interference additionally requires the scan to target the same remote address and port. This is deemed unlikely in typical use.
 
 ### Scan size limit and memory usage
 
 A single scan is limited to 16,777,214 host/port pairs. This accommodates either one TCP port across all usable addresses of an IPv4 `/8` subnet, or all 65,535 TCP ports across the 254 usable addresses of a `/24` subnet. Full-port scans of networks larger than `/24` exceed the limit and must be split into `/24` subnets or smaller scans. Larger networks can be scanned when the selected port count keeps the total number of host/port pairs within the limit.
 
-Unlike the original `singsing`, which generated probes incrementally, this implementation expands all targets and builds an expected-response hash-table entry for every host/port pair before sending. Memory use therefore grows with the total number of pairs, not only with the number of responses. On a typical 64-bit build, a one-port scan of a full usable `/8` subnet consumes roughly 500 MiB when few hosts answer. If every host returns an accepted response, the expected-response table, duplicate set, target list, and buffered results together require approximately 832 MiB; allocator and operating-system overhead can bring peak memory close to or above 1 GiB. The exact amount depends on the Rust toolchain and allocator. Split large scans when memory is constrained even if they are below the configured pair limit.
+Unlike the original `singsing`, which generated probes incrementally, this implementation expands all targets and builds an expected-response hash-table entry for every host/port pair before sending. Memory use therefore grows with the total number of targets, not only with the number of responses. On a typical 64-bit build, a one-port scan of a full usable `/8` subnet consumes roughly 500 MiB when few hosts answer. If every host returns an accepted response, the expected-response table, duplicate set, target list, and buffered results together require approximately 832 MiB; allocator and operating-system overhead can bring peak memory close to or above 1 GiB. The exact amount depends on the Rust toolchain and allocator. Split large scans when memory is constrained even if they are below the host/port pair hard limit.
 
 Networks larger than `/8` are rejected before their addresses are expanded, preventing oversized CIDRs such as `/7` or `/0` from exhausting memory before the scan limit can be checked.
 
@@ -191,7 +189,7 @@ Library callers constructing `ScanConfig` directly must provide unique target an
 
 ### Target handling
 
-For networks from `/8` through `/30`, `zucchini` skips the network and broadcast addresses. A `/31` subnet is treated as a point-to-point network, so both its addresses are scanned. If a `/32` subnet is specified as target, its single address is scanned.
+For networks from `/8` through `/30`, `zucchini` skips the network and broadcast addresses. A `/31` subnet, instead, is treated as a point-to-point network, so both its addresses are scanned. Finally, if a `/32` subnet is specified as target, its single address is scanned. In summary:
 
 ```text
 192.168.2.0/30 -> 192.168.2.1, 192.168.2.2
