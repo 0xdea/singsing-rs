@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{fmt, fs, thread};
 
-use anyhow::{Context as _, Result, anyhow, bail};
+use anyhow::{Context as _, anyhow, bail};
 use ipnet::Ipv4Net;
 use pnet::datalink;
 use pnet::packet::ip::IpNextHeaderProtocols;
@@ -186,7 +186,7 @@ impl ScanConfig {
 /// # Errors
 ///
 /// Returns an error if the interface does not exist or has no IPv4 address.
-pub fn interface_ipv4(name: &str) -> Result<Ipv4Addr> {
+pub fn interface_ipv4(name: &str) -> anyhow::Result<Ipv4Addr> {
     let interface = datalink::interfaces()
         .into_iter()
         .find(|interface| interface.name == name)
@@ -212,7 +212,7 @@ pub fn interface_ipv4(name: &str) -> Result<Ipv4Addr> {
 ///
 /// Returns an error for malformed IPv4/CIDR input or a network containing more
 /// usable addresses than a `/8`.
-pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>> {
+pub fn parse_targets(input: &str) -> anyhow::Result<Vec<Ipv4Addr>> {
     let network: Ipv4Net = if input.contains('/') {
         input.parse().context("invalid IPv4 network")?
     } else {
@@ -237,7 +237,7 @@ pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>> {
 ///
 /// Returns an error for empty items, reversed ranges, port zero, or values
 /// larger than 65535.
-pub fn parse_ports(input: &str) -> Result<Vec<u16>> {
+pub fn parse_ports(input: &str) -> anyhow::Result<Vec<u16>> {
     let mut ports = Vec::new();
     let mut seen = HashSet::new();
 
@@ -274,7 +274,7 @@ pub fn parse_ports(input: &str) -> Result<Vec<u16>> {
 /// # Errors
 ///
 /// Returns an error when the file cannot be read or contains no TCP services.
-pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<u16>> {
+pub fn ports_from_services(path: impl AsRef<Path>) -> anyhow::Result<Vec<u16>> {
     let contents = fs::read_to_string(path.as_ref())
         .with_context(|| format!("failed to read {}", path.as_ref().display()))?;
     let mut ports = Vec::new();
@@ -312,7 +312,7 @@ pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<u16>> {
 /// failures, or receiver failures. A transmission-phase failure is returned as
 /// [`IncompleteScanError`], which retains results received for successfully
 /// sent probes.
-pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>> {
+pub fn scan(config: &ScanConfig) -> anyhow::Result<Vec<ScanResult>> {
     scan_with_callbacks(config, |_| Ok(()), |_| Ok(()))
 }
 
@@ -327,8 +327,8 @@ pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>> {
 /// `on_result`.
 pub fn scan_with_callback(
     config: &ScanConfig,
-    on_result: impl FnMut(ScanResult) -> Result<()> + Send + 'static,
-) -> Result<Vec<ScanResult>> {
+    on_result: impl FnMut(ScanResult) -> anyhow::Result<()> + Send + 'static,
+) -> anyhow::Result<Vec<ScanResult>> {
     scan_with_callbacks(config, on_result, |_| Ok(()))
 }
 
@@ -344,9 +344,9 @@ pub fn scan_with_callback(
 /// callback.
 pub fn scan_with_callbacks(
     config: &ScanConfig,
-    mut on_result: impl FnMut(ScanResult) -> Result<()> + Send + 'static,
-    mut on_progress: impl FnMut(ScanProgress) -> Result<()>,
-) -> Result<Vec<ScanResult>> {
+    mut on_result: impl FnMut(ScanResult) -> anyhow::Result<()> + Send + 'static,
+    mut on_progress: impl FnMut(ScanProgress) -> anyhow::Result<()>,
+) -> anyhow::Result<Vec<ScanResult>> {
     let probe_count = validate_scan(config)?;
 
     let source_port = source_port();
@@ -386,7 +386,7 @@ pub fn scan_with_callbacks(
     let started = next_send;
     let mut next_progress = ONE_MINUTE;
     let mut probes_sent = 0;
-    let send_result = (|| -> Result<()> {
+    let send_result = (|| -> anyhow::Result<()> {
         for (&(host, port), &sequence) in expected.iter() {
             let packet = syn_packet(config.source, host, source_port, port, sequence);
             let ipv4_packet = MutableIpv4Packet::owned(packet)
@@ -431,7 +431,7 @@ pub fn scan_with_callbacks(
 }
 
 /// TODO.
-fn validate_scan(config: &ScanConfig) -> Result<usize> {
+fn validate_scan(config: &ScanConfig) -> anyhow::Result<usize> {
     validate_probe_count(
         config.targets.len(),
         config.ports.len(),
@@ -454,7 +454,7 @@ fn expected_responses(
     config: &ScanConfig,
     nonce: u32,
     probe_count: usize,
-) -> Result<HashMap<(Ipv4Addr, u16), u32>> {
+) -> anyhow::Result<HashMap<(Ipv4Addr, u16), u32>> {
     let mut expected = HashMap::with_capacity(probe_count);
     for &host in &config.targets {
         for &port in &config.ports {
@@ -477,7 +477,7 @@ fn validate_probe_count(
     target_count: usize,
     port_count: usize,
     bandwidth_kib: u64,
-) -> Result<usize> {
+) -> anyhow::Result<usize> {
     if target_count == 0 || port_count == 0 {
         bail!("at least one target and one port are required");
     }
@@ -517,7 +517,7 @@ fn next_progress_deadline(previous: Duration) -> Duration {
 }
 
 /// TODO.
-fn parse_port(input: &str) -> Result<u16> {
+fn parse_port(input: &str) -> anyhow::Result<u16> {
     let port: u16 = input
         .parse()
         .with_context(|| format!("invalid TCP port {input:?}"))?;
@@ -599,8 +599,8 @@ struct ReceiveConfig<'a> {
 fn receive(
     receiver: &mut TransportReceiver,
     config: &ReceiveConfig<'_>,
-    on_result: &mut impl FnMut(ScanResult) -> Result<()>,
-) -> Result<Vec<ScanResult>> {
+    on_result: &mut impl FnMut(ScanResult) -> anyhow::Result<()>,
+) -> anyhow::Result<Vec<ScanResult>> {
     let mut iterator = ipv4_packet_iter(receiver);
     let mut results = Vec::new();
     let mut seen = HashSet::new();
@@ -732,7 +732,7 @@ mod tests {
         env::temp_dir().join(format!("singsing-rs-services-{}-{number}", process::id()))
     }
 
-    fn services_from(contents: &str) -> Result<Vec<u16>> {
+    fn services_from(contents: &str) -> anyhow::Result<Vec<u16>> {
         let path = services_path();
         fs::write(&path, contents)?;
         let result = ports_from_services(&path);
@@ -1121,7 +1121,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_tcp_services_and_ignores_other_entries() -> Result<()> {
+    fn parses_tcp_services_and_ignores_other_entries() -> anyhow::Result<()> {
         let ports = services_from(
             "\
 # comment

@@ -28,6 +28,7 @@ fn stderr(output: &Output) -> &str {
 fn prints_help() {
     let help = run(&["--help"]);
     assert!(help.status.success());
+    assert_eq!(help.status.code(), Some(0));
     assert!(stdout(&help).contains("Usage: zucchini"));
     assert!(stdout(&help).contains("--host"));
     assert!(stdout(&help).contains("--verbose"));
@@ -47,12 +48,14 @@ fn rejects_version_flag() {
 fn rejects_invalid_cli() {
     let missing = run(&[]);
     assert!(!missing.status.success());
+    assert_eq!(missing.status.code(), Some(2));
     assert!(stdout(&missing).is_empty());
     assert!(stderr(&missing).starts_with("zucchini "));
     assert!(stderr(&missing).contains("required arguments"));
 
     let timeout = run(&["-h", "192.168.2.1", "-i", "lo", "--timeout", "0"]);
     assert!(!timeout.status.success());
+    assert_eq!(timeout.status.code(), Some(2));
     assert!(stdout(&timeout).is_empty());
     assert!(stderr(&timeout).starts_with("zucchini "));
     assert!(stderr(&timeout).contains("invalid value '0' for '--timeout <TIMEOUT>'"));
@@ -127,6 +130,7 @@ fn reports_nonexistent_interface_without_raw_socket() {
     ]);
 
     assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(1));
     assert!(stderr(&output).starts_with("zucchini "));
     assert!(stderr(&output).contains("does not exist"));
     assert!(!stderr(&output).contains("failed to create raw socket"));
