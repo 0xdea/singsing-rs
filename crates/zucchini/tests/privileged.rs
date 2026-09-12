@@ -105,3 +105,18 @@ fn reports_closed_port_end_to_end() {
     );
     assert!(stderr(&output).contains("Done: 1 host/port pairs scanned"));
 }
+
+#[test]
+#[ignore = "requires Linux and root or CAP_NET_RAW"]
+fn hides_closed_port_by_default_end_to_end() {
+    let port = unused_loopback_port();
+    let output = run(port, &[]);
+
+    assert!(output.status.success());
+    assert!(
+        stdout(&output).is_empty(),
+        "stdout was: {}",
+        stdout(&output)
+    );
+    assert!(stderr(&output).contains("Done: 1 host/port pairs scanned"));
+}

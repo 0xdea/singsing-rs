@@ -44,29 +44,33 @@ fn rejects_version_flag() {
 }
 
 #[test]
-fn rejects_invalid_cli_before_printing_banner() {
+fn rejects_invalid_cli() {
     let missing = run(&[]);
     assert!(!missing.status.success());
     assert!(stdout(&missing).is_empty());
+    assert!(stderr(&missing).starts_with("zucchini "));
     assert!(stderr(&missing).contains("required arguments"));
 
     let timeout = run(&["-h", "192.168.2.1", "-i", "lo", "--timeout", "0"]);
     assert!(!timeout.status.success());
     assert!(stdout(&timeout).is_empty());
+    assert!(stderr(&timeout).starts_with("zucchini "));
     assert!(stderr(&timeout).contains("invalid value '0' for '--timeout <TIMEOUT>'"));
 }
 
 #[test]
-fn reports_invalid_targets_and_ports_before_printing_banner() {
+fn reports_invalid_targets_and_ports() {
     let target = run(&["-h", "not-an-address", "-i", "lo", "-p", "80"]);
     assert!(!target.status.success());
     assert!(stdout(&target).is_empty());
+    assert!(stderr(&target).starts_with("zucchini "));
     assert!(stderr(&target).contains("invalid value 'not-an-address' for '--host <HOST>'"));
     assert!(stderr(&target).contains("invalid IPv4 address"));
 
     let ports = run(&["-h", "192.168.2.1", "-i", "lo", "-p", "80-79"]);
     assert!(!ports.status.success());
     assert!(stdout(&ports).is_empty());
+    assert!(stderr(&ports).starts_with("zucchini "));
     assert!(stderr(&ports).contains("invalid value '80-79' for '--ports <PORTS>'"));
     assert!(stderr(&ports).contains("reversed port range"));
 }
@@ -92,7 +96,7 @@ fn rejects_full_port_slash_23_before_raw_socket() {
 }
 
 #[test]
-fn rejects_zero_bandwidth_before_printing_banner() {
+fn rejects_zero_bandwidth() {
     let output = run(&[
         "-h",
         "192.168.2.1",
@@ -106,6 +110,7 @@ fn rejects_zero_bandwidth_before_printing_banner() {
 
     assert!(!output.status.success());
     assert!(stdout(&output).is_empty());
+    assert!(stderr(&output).starts_with("zucchini "));
     assert!(stderr(&output).contains("invalid value '0' for '--bandwidth <BANDWIDTH>'"));
     assert!(!stderr(&output).contains("failed to create raw socket"));
 }
@@ -126,4 +131,29 @@ fn reports_nonexistent_interface_without_raw_socket() {
     assert!(stderr(&output).contains("does not exist"));
     assert!(!stderr(&output).contains("failed to create raw socket"));
     assert!(stdout(&output).is_empty());
+}
+
+#[test]
+fn defaults_to_services_file_ports_when_omitted() {
+    let output = run(&["-h", "192.168.2.1", "-i", "lo"]);
+
+    assert!(!output.status.success());
+    assert!(stdout(&output).is_empty());
+    assert!(stderr(&output).starts_with("zucchini "));
+
+    let summary = stderr(&output)
+        .lines()
+        .find(|line| line.starts_with("Scanning:"))
+        .expect("scan summary should print before raw socket creation is attempted");
+    let pairs: usize = summary
+        .split_whitespace()
+        .nth(1)
+        .and_then(|count| count.parse().ok())
+        .expect("scan summary should start with a numeric pair count");
+
+    assert!(
+        pairs > 1,
+        "expected multiple ports loaded from /etc/services, scan summary was: {summary}"
+    );
+    assert!(stderr(&output).contains("failed to create raw socket"));
 }

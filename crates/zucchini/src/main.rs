@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context as _, Result};
+use anyhow::Context as _;
 use chrono::{DateTime, Duration as ChronoDuration, Local, TimeZone};
 use clap::Parser;
 use singsing_rs::{
@@ -39,7 +39,7 @@ struct Targets(Vec<Ipv4Addr>);
 impl FromStr for Targets {
     type Err = anyhow::Error;
 
-    fn from_str(input: &str) -> Result<Self> {
+    fn from_str(input: &str) -> anyhow::Result<Self> {
         parse_targets(input).map(Self)
     }
 }
@@ -53,7 +53,7 @@ struct Ports(Vec<u16>);
 impl FromStr for Ports {
     type Err = anyhow::Error;
 
-    fn from_str(input: &str) -> Result<Self> {
+    fn from_str(input: &str) -> anyhow::Result<Self> {
         parse_ports(input).map(Self)
     }
 }
@@ -106,7 +106,7 @@ fn main() -> ExitCode {
 }
 
 /// Runs the main scan logic.
-fn run() -> Result<()> {
+fn run() -> anyhow::Result<()> {
     write_banner()?;
 
     let args = Arguments::parse();
@@ -155,7 +155,7 @@ fn run() -> Result<()> {
 }
 
 /// Writes the scan summary to stderr, flushed before the scan starts.
-fn write_scan_summary(probes: usize, interface: &str, source: Ipv4Addr) -> Result<()> {
+fn write_scan_summary(probes: usize, interface: &str, source: Ipv4Addr) -> anyhow::Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
     write_scan_summary_to(&mut output, probes, interface, source)?;
@@ -168,7 +168,7 @@ fn write_scan_summary_to(
     probes: usize,
     interface: &str,
     source: Ipv4Addr,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     writeln!(
         output,
         "Scanning: {probes} host/port pairs via {interface} ({source})..."
@@ -177,14 +177,18 @@ fn write_scan_summary_to(
 }
 
 /// Writes the done summary to stderr.
-fn write_done_summary(probes: usize, elapsed: f64) -> Result<()> {
+fn write_done_summary(probes: usize, elapsed: f64) -> anyhow::Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
     write_done_summary_to(&mut output, probes, elapsed)
 }
 
 /// Writes a done summary to the specified output stream.
-fn write_done_summary_to(output: &mut impl Write, probes: usize, elapsed: f64) -> Result<()> {
+fn write_done_summary_to(
+    output: &mut impl Write,
+    probes: usize,
+    elapsed: f64,
+) -> anyhow::Result<()> {
     writeln!(
         output,
         "\nDone: {probes} host/port pairs scanned in {elapsed:.1} seconds"
@@ -193,14 +197,14 @@ fn write_done_summary_to(output: &mut impl Write, probes: usize, elapsed: f64) -
 }
 
 /// Writes the results to stdout.
-fn write_results(results: &[ScanResult]) -> Result<()> {
+fn write_results(results: &[ScanResult]) -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
     write_results_to(&mut output, results)
 }
 
 /// Writes the results to the given output stream.
-fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> Result<()> {
+fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> anyhow::Result<()> {
     if !results.is_empty() {
         writeln!(output, "\nScan results:").context("failed to write results heading")?;
     }
@@ -211,7 +215,7 @@ fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> Result<(
 }
 
 /// Prints the program banner to stderr.
-fn write_banner() -> Result<()> {
+fn write_banner() -> anyhow::Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
     write_banner_to(&mut output)?;
@@ -220,7 +224,7 @@ fn write_banner() -> Result<()> {
 }
 
 /// Writes the program banner to the given output stream.
-fn write_banner_to(output: &mut impl Write) -> Result<()> {
+fn write_banner_to(output: &mut impl Write) -> anyhow::Result<()> {
     write!(
         output,
         "{PROGRAM} {VERSION} - {DESCRIPTION}\nCopyright (c) 2026 {AUTHORS}\n\n"
@@ -229,7 +233,7 @@ fn write_banner_to(output: &mut impl Write) -> Result<()> {
 }
 
 /// Writes a verbose scan result to stdout, flushed immediately for live feedback.
-fn write_verbose_result(result: ScanResult) -> Result<()> {
+fn write_verbose_result(result: ScanResult) -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
     write_result_to(&mut output, result, true)?;
@@ -237,7 +241,11 @@ fn write_verbose_result(result: ScanResult) -> Result<()> {
 }
 
 /// Writes the scan result to the given output stream.
-fn write_result_to(output: &mut impl Write, result: ScanResult, verbose: bool) -> Result<()> {
+fn write_result_to(
+    output: &mut impl Write,
+    result: ScanResult,
+    verbose: bool,
+) -> anyhow::Result<()> {
     let state = match result.state {
         PortState::Open => "open",
         PortState::Closed => "closed",
@@ -250,7 +258,7 @@ fn write_result_to(output: &mut impl Write, result: ScanResult, verbose: bool) -
 }
 
 /// Writes the scan progress to stderr.
-fn write_progress(progress: ScanProgress) -> Result<()> {
+fn write_progress(progress: ScanProgress) -> anyhow::Result<()> {
     let line = format_progress(progress, Local::now());
     let stderr = io::stderr();
     let mut output = stderr.lock();
@@ -280,10 +288,12 @@ where
 #[expect(clippy::panic_in_result_fn, reason = "panics are allowed in test code")]
 #[expect(clippy::unwrap_used, reason = "tests can use `unwrap`")]
 mod tests {
+    use clap::error::ErrorKind;
+
     use super::*;
 
     #[test]
-    fn parses_default_options() -> Result<()> {
+    fn parses_default_options() -> anyhow::Result<()> {
         let arguments =
             Arguments::try_parse_from(["zucchini", "--host", "127.0.0.1", "--interface", "lo"])?;
 
@@ -298,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_all_scanner_options() -> Result<()> {
+    fn parses_all_scanner_options() -> anyhow::Result<()> {
         let arguments = Arguments::try_parse_from([
             "zucchini",
             "--host",
@@ -360,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn formats_banner_scan_and_completion_summaries() -> Result<()> {
+    fn formats_banner_scan_and_completion_summaries() -> anyhow::Result<()> {
         let mut output = Vec::new();
         write_banner_to(&mut output)?;
         write_scan_summary_to(&mut output, 3, "eth0", "192.168.2.1".parse()?)?;
@@ -381,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn formats_empty_buffered_and_verbose_results() -> Result<()> {
+    fn formats_empty_buffered_and_verbose_results() -> anyhow::Result<()> {
         let open = ScanResult {
             host: "172.16.100.2".parse()?,
             port: 443,
@@ -473,7 +483,7 @@ mod tests {
     fn help_flag_displays_help() {
         let error = Arguments::try_parse_from(["zucchini", "--help"]).unwrap_err();
 
-        assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+        assert_eq!(error.kind(), ErrorKind::DisplayHelp);
     }
 
     #[test]
@@ -482,6 +492,6 @@ mod tests {
             Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "--version"])
                 .unwrap_err();
 
-        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+        assert_eq!(error.kind(), ErrorKind::UnknownArgument);
     }
 }
