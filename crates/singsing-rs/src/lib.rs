@@ -105,6 +105,10 @@ impl fmt::Display for IncompleteScanError {
     }
 }
 
+#[expect(
+    clippy::missing_trait_methods,
+    reason = "description/cause are deprecated and type_id/provide should not be overridden"
+)]
 impl Error for IncompleteScanError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(self.source.as_ref())
