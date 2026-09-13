@@ -107,7 +107,7 @@ impl fmt::Display for IncompleteScanError {
 
 #[expect(
     clippy::missing_trait_methods,
-    reason = "description/cause are deprecated and type_id/provide should not be overridden"
+    reason = "`description`/`cause` are deprecated and `type_id`/`provide` should not be overridden"
 )]
 impl Error for IncompleteScanError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
@@ -394,6 +394,10 @@ pub fn scan_with_callbacks(
     let mut next_progress = ONE_MINUTE;
     let mut probes_sent = 0;
     let send_result = (|| -> anyhow::Result<()> {
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "randomized `HashMap` iteration order is deliberate; see README's Transmission order section"
+        )]
         for (&(host, port), &sequence) in expected.iter() {
             let packet = syn_packet(config.source, host, source_port, port, sequence);
             let ipv4_packet = MutableIpv4Packet::owned(packet)
