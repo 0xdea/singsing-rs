@@ -33,7 +33,7 @@ const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 ///
 /// Wrapped in a newtype so clap treats a single `--host` occurrence as one parsed value rather than inferring
 /// multi-occurrence behavior from a bare `Vec<Ipv4Addr>` field type.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Targets(Vec<Ipv4Addr>);
 
 impl FromStr for Targets {
@@ -47,7 +47,7 @@ impl FromStr for Targets {
 /// TCP ports parsed from a `--ports` argument.
 ///
 /// Wrapped in a newtype for the same reason as [`Targets`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Ports(Vec<u16>);
 
 impl FromStr for Ports {
@@ -110,13 +110,14 @@ fn run() -> anyhow::Result<()> {
     write_banner()?;
 
     let args = Arguments::parse();
+    let Targets(host) = args.host;
     let ports = args
         .ports
         .map(|Ports(ports)| ports)
         .map_or_else(|| ports_from_services("/etc/services"), Ok)?;
     let source = interface_ipv4(&args.interface)?;
 
-    let mut config = ScanConfig::new(args.host.0, ports, source);
+    let mut config = ScanConfig::new(host, ports, source);
     config.bandwidth_kib = args.bandwidth;
     config.timeout = Duration::from_secs(args.timeout);
     config.show_closed = args.closed;
@@ -295,7 +296,7 @@ mod tests {
         let arguments =
             Arguments::try_parse_from(["zucchini", "--host", "127.0.0.1", "--interface", "lo"])?;
 
-        assert_eq!(arguments.host.0, ["127.0.0.1".parse::<Ipv4Addr>()?]);
+        assert_eq!(arguments.host, Targets(vec!["127.0.0.1".parse()?]));
         assert_eq!(arguments.interface, "lo");
         assert_eq!(arguments.bandwidth, 15);
         assert!(arguments.ports.is_none());
@@ -323,13 +324,10 @@ mod tests {
             "--verbose",
         ])?;
 
-        assert_eq!(arguments.host.0, parse_targets("192.168.2.0/24")?);
+        assert_eq!(arguments.host, Targets(parse_targets("192.168.2.0/24")?));
         assert_eq!(arguments.interface, "eth0");
         assert_eq!(arguments.bandwidth, 100);
-        assert_eq!(
-            arguments.ports.map(|Ports(ports)| ports),
-            Some(vec![22, 80])
-        );
+        assert_eq!(arguments.ports, Some(Ports(vec![22, 80])));
         assert!(arguments.closed);
         assert_eq!(arguments.timeout, 60);
         assert!(arguments.verbose);
