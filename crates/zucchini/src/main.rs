@@ -151,6 +151,7 @@ fn run() -> anyhow::Result<()> {
             return Err(e);
         }
     }
+
     write_done_summary(probes, started.elapsed().as_secs_f64())
 }
 
@@ -159,8 +160,7 @@ fn write_banner() -> anyhow::Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
     write_banner_to(&mut output)?;
-    output.flush().context("failed to flush program banner")?;
-    Ok(())
+    output.flush().context("failed to flush output stream")
 }
 
 /// Writes the program banner to the given output stream.
@@ -177,10 +177,10 @@ fn write_scan_summary(probes: usize, interface: &str, source: Ipv4Addr) -> anyho
     let stderr = io::stderr();
     let mut output = stderr.lock();
     write_scan_summary_to(&mut output, probes, interface, source)?;
-    output.flush().context("failed to flush scan summary")
+    output.flush().context("failed to flush output stream")
 }
 
-/// Writes the scan summary to the specified output stream.
+/// Writes the scan summary to the given output stream.
 fn write_scan_summary_to(
     output: &mut impl Write,
     probes: usize,
@@ -201,7 +201,7 @@ fn write_done_summary(probes: usize, elapsed: f64) -> anyhow::Result<()> {
     write_done_summary_to(&mut output, probes, elapsed)
 }
 
-/// Writes the done summary to the specified output stream.
+/// Writes the done summary to the given output stream.
 fn write_done_summary_to(
     output: &mut impl Write,
     probes: usize,
@@ -237,10 +237,10 @@ fn write_verbose_result(result: ScanResult) -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
     write_result_to(&mut output, result, true)?;
-    output.flush().context("failed to flush scan result")
+    output.flush().context("failed to flush output stream")
 }
 
-/// Writes a scan result to the given output stream.
+/// Writes the scan result to the given output stream.
 fn write_result_to(
     output: &mut impl Write,
     result: ScanResult,
@@ -253,8 +253,7 @@ fn write_result_to(
     };
     let prefix = if verbose { "[verbose] " } else { "" };
     writeln!(output, "{prefix}{state} {}:{}", result.host, result.port)
-        .context("failed to write scan result")?;
-    Ok(())
+        .context("failed to write scan result")
 }
 
 /// Writes the scan progress to stderr, flushed immediately.
@@ -263,8 +262,7 @@ fn write_progress(progress: ScanProgress) -> anyhow::Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
     writeln!(output, "{line}").context("failed to write scan progress")?;
-    output.flush().context("failed to flush scan progress")?;
-    Ok(())
+    output.flush().context("failed to flush output stream")
 }
 
 /// Formats the scan progress as a string.
