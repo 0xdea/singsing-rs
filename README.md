@@ -187,7 +187,7 @@ Unlike the original `singsing`, which generated probes incrementally, this imple
 
 Networks larger than `/8` are rejected before their addresses are expanded, preventing oversized CIDRs such as `/7` or `/0` from exhausting memory before the scan limit can be checked.
 
-Library callers constructing `ScanConfig` directly must provide unique target and port vectors; duplicate entries are rejected rather than silently producing inaccurate probe and progress counts.
+Library callers constructing `ScanConfig` directly must provide unique target and port vectors. `ScanConfig::new` does not validate this itself; duplicates are instead rejected once scanning starts and the expected-response table above is built, rather than silently producing inaccurate probe and progress counts.
 
 ### Target handling
 
