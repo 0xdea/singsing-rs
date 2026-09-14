@@ -385,16 +385,8 @@ mod tests {
 
     #[test]
     fn formats_empty_buffered_and_verbose_results() -> anyhow::Result<()> {
-        let open = ScanResult {
-            host: "172.16.100.2".parse()?,
-            port: 443,
-            state: PortState::Open,
-        };
-        let closed = ScanResult {
-            host: "172.16.100.3".parse()?,
-            port: 80,
-            state: PortState::Closed,
-        };
+        let open = ScanResult::new("172.16.100.2".parse()?, 443, PortState::Open);
+        let closed = ScanResult::new("172.16.100.3".parse()?, 80, PortState::Closed);
         let mut output = Vec::new();
         write_results_to(&mut output, &[])?;
         assert!(output.is_empty());
@@ -425,19 +417,9 @@ mod tests {
             .with_ymd_and_hms(2026, 1, 1, 12, 0, 0)
             .single()
             .unwrap();
-        let progress = ScanProgress {
-            probes_sent: 25,
-            total_probes: 100,
-            elapsed: Duration::from_secs(60),
-        };
-        let not_started = ScanProgress {
-            probes_sent: 0,
-            ..progress
-        };
-        let complete = ScanProgress {
-            probes_sent: 100,
-            ..progress
-        };
+        let progress = ScanProgress::new(25, 100, Duration::from_secs(60));
+        let not_started = ScanProgress::new(0, 100, Duration::from_secs(60));
+        let complete = ScanProgress::new(100, 100, Duration::from_secs(60));
 
         assert_eq!(
             format_progress(progress, now),
@@ -460,11 +442,7 @@ mod tests {
             .with_ymd_and_hms(2026, 1, 1, 12, 0, 0)
             .single()
             .unwrap();
-        let progress = ScanProgress {
-            probes_sent: 25,
-            total_probes: 100,
-            elapsed: Duration::from_secs(60),
-        };
+        let progress = ScanProgress::new(25, 100, Duration::from_secs(60));
 
         assert_eq!(
             format_progress(progress, now),

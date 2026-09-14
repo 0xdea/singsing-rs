@@ -54,6 +54,7 @@ pub enum PortState {
 
 /// One response produced by a scan.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct ScanResult {
     /// The responding host.
     pub host: Ipv4Addr,
@@ -61,6 +62,14 @@ pub struct ScanResult {
     pub port: u16,
     /// The inferred port state.
     pub state: PortState,
+}
+
+impl ScanResult {
+    /// Creates a scan result for the given host, port, and inferred state.
+    #[must_use]
+    pub const fn new(host: Ipv4Addr, port: u16, state: PortState) -> Self {
+        Self { host, port, state }
+    }
 }
 
 /// An error that stopped transmission after part of a scan was sent.
@@ -118,6 +127,7 @@ impl Error for IncompleteScanError {
 
 /// Sending progress reported during a scan.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct ScanProgress {
     /// Number of probes sent so far.
     pub probes_sent: usize,
@@ -128,6 +138,16 @@ pub struct ScanProgress {
 }
 
 impl ScanProgress {
+    /// Creates a progress snapshot from the given probe counts and elapsed time.
+    #[must_use]
+    pub const fn new(probes_sent: usize, total_probes: usize, elapsed: Duration) -> Self {
+        Self {
+            probes_sent,
+            total_probes,
+            elapsed,
+        }
+    }
+
     /// Returns the integer completion percentage.
     #[must_use]
     pub const fn percent(self) -> usize {

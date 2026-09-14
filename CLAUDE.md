@@ -68,6 +68,8 @@ CI (`.github/workflows/build.yml`) runs, in order: `cargo fmt --check`, `cargo b
 
 `Cargo.toml` at the workspace root enables `clippy::all`, `pedantic`, `nursery`, `cargo`, and `restriction` at `warn`, with a curated list of `restriction`/other lints explicitly allowed back (see `[workspace.lints.clippy]`). When adding code, expect the full pedantic/nursery/restriction lint surface to apply unless already allowed in that list — don't reflexively silence new warnings with `#[allow]`; check whether the workspace already has an opinion first. `missing_docs` is a warned rustc lint, so public items need doc comments.
 
+Two different suppression mechanisms are used deliberately, not interchangeably: a workspace-level `= "allow"` entry in `Cargo.toml` is for lints considered broadly noisy across the whole codebase (e.g. `shadow_reuse`, `arithmetic_side_effects`, `integer_division`, `integer_division_remainder_used`); a function/statement-level `#[expect(clippy::LINT, reason = "...")]` is for lints kept live everywhere else but locally justified at one call site (e.g. `expect_used` in `syn_packet` on the provably-infallible fixed-size packet construction, `as_conversions` on provably-lossless truncating casts, `iter_over_hash_type` on the deliberately-randomized send loop, `missing_trait_methods` on the `Error` impl where the default-provided methods are deprecated/dangerous to override). When a new lint fires, decide which bucket it belongs in rather than defaulting to either one.
+
 ## Architecture (`crates/singsing-rs/src/lib.rs`)
 
 Everything lives in one file, organized around a single entry point, `scan`/`scan_with_callback`/`scan_with_callbacks` (`ScanConfig` in, `Vec<ScanResult>` out). Understanding a change usually requires following this pipeline:
@@ -82,6 +84,8 @@ Everything lives in one file, organized around a single entry point, `scan`/`sca
 Host/port storage is a `HashMap` with unspecified (randomized) iteration order — deliberate, to interleave scan order across hosts/ports and avoid an obvious sequential pattern (unlike the original's deterministic bandwidth-derived stride).
 
 Memory scales with total host×port pairs, not just responses received, since the full `expected` table and target/port vectors are built up front rather than generated incrementally.
+
+Public data structs (`ScanConfig`, `ScanResult`, `ScanProgress`) are all `#[non_exhaustive]` with a `::new()` constructor, even though every field is `pub` and freely settable afterward — this keeps adding a field to any of them a non-breaking change. New public structs should follow the same shape; `IncompleteScanError` doesn't need it since all its fields are already private.
 
 ## `crates/zucchini/src/main.rs`
 

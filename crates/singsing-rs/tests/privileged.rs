@@ -54,11 +54,7 @@ fn detects_open_loopback_port() {
 
     assert_eq!(
         scan(&scan_config(vec![port], false)).unwrap(),
-        [ScanResult {
-            host: Ipv4Addr::LOCALHOST,
-            port,
-            state: PortState::Open,
-        }]
+        [ScanResult::new(Ipv4Addr::LOCALHOST, port, PortState::Open)]
     );
 }
 
@@ -70,11 +66,11 @@ fn controls_closed_loopback_reporting() {
     assert!(scan(&scan_config(vec![port], false)).unwrap().is_empty());
     assert_eq!(
         scan(&scan_config(vec![port], true)).unwrap(),
-        [ScanResult {
-            host: Ipv4Addr::LOCALHOST,
+        [ScanResult::new(
+            Ipv4Addr::LOCALHOST,
             port,
-            state: PortState::Closed,
-        }]
+            PortState::Closed
+        )]
     );
 }
 
@@ -87,21 +83,9 @@ fn sorts_mixed_loopback_results() {
     let second_open = second_listener.local_addr().unwrap().port();
     let closed = unused_loopback_port();
     let mut expected = [
-        ScanResult {
-            host: Ipv4Addr::LOCALHOST,
-            port: first_open,
-            state: PortState::Open,
-        },
-        ScanResult {
-            host: Ipv4Addr::LOCALHOST,
-            port: second_open,
-            state: PortState::Open,
-        },
-        ScanResult {
-            host: Ipv4Addr::LOCALHOST,
-            port: closed,
-            state: PortState::Closed,
-        },
+        ScanResult::new(Ipv4Addr::LOCALHOST, first_open, PortState::Open),
+        ScanResult::new(Ipv4Addr::LOCALHOST, second_open, PortState::Open),
+        ScanResult::new(Ipv4Addr::LOCALHOST, closed, PortState::Closed),
     ];
     expected.sort_unstable_by_key(|result| result.port);
 
