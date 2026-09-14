@@ -374,13 +374,10 @@ mod tests {
 
         assert_eq!(
             String::from_utf8(output)?,
-            concat!(
-                "zucchini 0.1.0 - A blazing fast Linux IPv4 port scanner\n",
-                "Copyright (c) 2026 Marco Ivaldi <raptor@0xdeadbeef.info>\n",
-                "\n",
-                "Scanning: 3 host/port pairs via eth0 (192.168.2.1)...\n",
-                "\n",
-                "Done: 3 host/port pairs scanned in 30.1 seconds\n",
+            format!(
+                "{PROGRAM} {VERSION} - {DESCRIPTION}\nCopyright (c) 2026 {AUTHORS}\n\n\
+                Scanning: 3 host/port pairs via eth0 (192.168.2.1)...\n\n\
+                Done: 3 host/port pairs scanned in 30.1 seconds\n"
             )
         );
         Ok(())

@@ -1,6 +1,6 @@
 [package]
 name = "singsing-rs"
-description = "A blazing fast Linux IPv4 port scanning library"
+description = "Blazing-fast IPv4/TCP port scanning library for Linux"
 categories = ["security", "network-programming"]
 version.workspace = true
 authors.workspace = true

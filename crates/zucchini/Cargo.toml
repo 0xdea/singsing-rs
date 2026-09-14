@@ -1,6 +1,6 @@
 [package]
 name = "zucchini"
-description = "A blazing fast Linux IPv4 port scanner"
+description = "Blazing-fast TCP port scanner for Linux"
 categories = ["security", "network-programming", "command-line-utilities"]
 version.workspace = true
 authors.workspace = true

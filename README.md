@@ -11,7 +11,7 @@
 >
 > -- [Matt Harrigan](https://wherewarlocksstayuplate.com/interview/episode-1-digital-jesus-aka-matt-harrigan/)
 
-The [`singsing-rs`](https://github.com/0xdea/singsing-rs/tree/master/crates/singsing-rs) library crate is a modern Rust reimplementation of the original [`singsing`](https://github.com/inode-/singsing) project by my old friend and longtime packet wizard [inode](https://github.com/inode-). It's a blazing fast ⚡️ Linux IPv4 port scanning library.
+The [`singsing-rs`](https://github.com/0xdea/singsing-rs/tree/master/crates/singsing-rs) library crate is my modern Rust reimplementation of the original [`singsing`](https://github.com/inode-/singsing) project, written in C by my old friend and longtime packet wizard [inode](https://github.com/inode-). It's a blazing-fast ⚡️ yet very reliable IPv4/TCP port scanning library for Linux.
 
 The [`zucchini`](https://github.com/0xdea/singsing-rs/tree/master/crates/zucchini) binary crate is a standalone command-line port scanner based on `singsing-rs`, inspired by the original
 [`zucca`](https://github.com/inode-/singsing/blob/master/src/examples/zucca.c) scanner from the `singsing` project.
