@@ -137,6 +137,10 @@ The scanner is intentionally Linux-only. The release build and test suite have b
 
 ## Credits
 
+This project is a Rust port and modernization of [Maurizio Agazzini 🧙‍♂️](https://github.com/inode-)'s `singsing` library and its `zucca` SYN-scanner example.
+
+It belongs to the broader family of asynchronous scanners that includes [`scanrand`](https://github.com/krisnova/paketto), [`unicornscan`](https://github.com/robertelee78/unicornscan), [`zmap`](https://github.com/zmap/zmap), and [`masscan`](https://github.com/robertdavidgraham/masscan). Those projects are useful points of comparison, but this implementation is derived from `singsing`/`zucca` unless otherwise noted.
+
 - Maurizio Agazzini ([inode](https://github.com/inode-)) 🧙‍♂️, author of the original `singsing` and `zucca`.
 
 ## Changelog
