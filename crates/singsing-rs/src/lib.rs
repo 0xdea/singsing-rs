@@ -8,6 +8,7 @@
 #[cfg(not(target_os = "linux"))]
 compile_error!("singsing-rs only supports Linux (see the Compatibility section in README.md)");
 
+use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr};
@@ -425,9 +426,12 @@ pub fn scan_with_callbacks(
     })();
     done.store(true, Ordering::Release);
 
-    let mut results = receive_thread
-        .join()
-        .map_err(|_| anyhow!("packet receiver thread panicked"))??;
+    let mut results = receive_thread.join().map_err(|payload| {
+        anyhow!(
+            "packet receiver thread panicked: {}",
+            describe_panic_payload(&*payload)
+        )
+    })??;
     results.sort_unstable_by_key(|result| (u32::from(result.host), result.port));
     if let Err(e) = send_result {
         return Err(IncompleteScanError {
@@ -439,6 +443,18 @@ pub fn scan_with_callbacks(
         .into());
     }
     Ok(results)
+}
+
+/// Extracts a human-readable message from a thread panic payload.
+///
+/// Falls back to a generic message when the payload isn't the common `&str`
+/// or `String` shape produced by `panic!`.
+fn describe_panic_payload(payload: &(dyn Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("unknown panic payload")
 }
 
 /// TODO.
@@ -835,6 +851,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::as_conversions,
+        reason = "`sequence >> 16` keeps only the top 16 bits, so it always fits in a `u16`"
+    )]
     fn builds_valid_syn_packet() {
         let source = "192.168.2.1".parse().unwrap();
         let destination = "172.16.100.2".parse().unwrap();
@@ -1212,6 +1232,24 @@ zero            0/tcp
             format!("{error:#}"),
             "scan stopped after sending 7 of 10 probes: send failed"
         );
+    }
+
+    #[test]
+    fn describes_str_panic_payload() {
+        let payload: Box<dyn Any + Send> = Box::new("boom");
+        assert_eq!(describe_panic_payload(&*payload), "boom");
+    }
+
+    #[test]
+    fn describes_string_panic_payload() {
+        let payload: Box<dyn Any + Send> = Box::new(String::from("boom"));
+        assert_eq!(describe_panic_payload(&*payload), "boom");
+    }
+
+    #[test]
+    fn describes_unrecognized_panic_payload() {
+        let payload: Box<dyn Any + Send> = Box::new(42_i32);
+        assert_eq!(describe_panic_payload(&*payload), "unknown panic payload");
     }
 
     #[test]
