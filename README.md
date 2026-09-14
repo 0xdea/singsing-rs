@@ -201,4 +201,6 @@ For networks from `/8` through `/30`, `zucchini` skips the network and broadcast
 
 ### Error handling
 
-If transmission stops after an individual probe error, `zucchini` prints the results received from probes that were successfully sent, then reports the incomplete scan and exits with a failure status. Library callers can downcast the returned error to `IncompleteScanError` to inspect its partial results and sent-probe count.
+`singsing-rs` reports failures through typed, matchable error enums (`InterfaceError`, `TargetsError`, `PortsError`, `ScanError`) rather than an opaque error type, so library callers can `match` on the specific failure instead of parsing message text.
+
+If transmission stops after an individual probe error, `zucchini` prints the results received from probes that were successfully sent, then reports the incomplete scan and exits with a failure status. Library callers get this as `ScanError::Incomplete`, whose `IncompleteScanError` payload exposes partial results and the sent-probe count.

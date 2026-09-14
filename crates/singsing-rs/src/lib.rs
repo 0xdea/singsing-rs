@@ -10,15 +10,15 @@ compile_error!("singsing-rs only supports Linux (see the Compatibility section i
 
 use std::any::Any;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::error::Error;
+use std::error::Error as StdError;
 use std::net::{IpAddr, Ipv4Addr};
-use std::path::Path;
+use std::num::ParseIntError;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use std::{fmt, fs, thread};
+use std::{fs, io, thread};
 
-use anyhow::{Context as _, anyhow, bail};
 use ipnet::Ipv4Net;
 use pnet::datalink;
 use pnet::packet::ip::IpNextHeaderProtocols;
@@ -28,6 +28,7 @@ use pnet::packet::{MutablePacket as _, Packet as _};
 use pnet::transport::{
     TransportChannelType, TransportReceiver, ipv4_packet_iter, transport_channel,
 };
+use thiserror::Error;
 
 /// The packet length used for scanning.
 const PACKET_LEN: usize = 40;
@@ -43,10 +44,12 @@ const THIRTY_MINUTES: Duration = Duration::from_mins(30);
 const ONE_HOUR: Duration = Duration::from_hours(1);
 
 /// An error that stopped transmission after part of a scan was sent.
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("scan stopped after sending {probes_sent} of {total_probes} probes")]
 pub struct IncompleteScanError {
     /// The error that caused the incomplete scan.
-    source: anyhow::Error,
+    #[source]
+    source: SendError,
     /// The results received from probes sent before transmission stopped.
     partial_results: Vec<ScanResult>,
     /// The number of probes successfully sent before the error.
@@ -75,24 +78,168 @@ impl IncompleteScanError {
     }
 }
 
-#[expect(
-    clippy::missing_trait_methods,
-    reason = "`description`/`cause` are deprecated and `type_id`/`provide` should not be overridden"
-)]
-impl Error for IncompleteScanError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(self.source.as_ref())
-    }
+/// An error resolving a network interface's IPv4 address.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum InterfaceError {
+    /// No interface with the given name exists.
+    #[error("network interface {name:?} does not exist")]
+    NotFound {
+        /// The requested interface name.
+        name: String,
+    },
+    /// The interface exists but has no IPv4 address.
+    #[error("network interface {name:?} has no IPv4 address")]
+    NoIpv4 {
+        /// The requested interface name.
+        name: String,
+    },
 }
 
-impl fmt::Display for IncompleteScanError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "scan stopped after sending {} of {} probes",
-            self.probes_sent, self.total_probes
-        )
-    }
+/// An error parsing scan targets.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum TargetsError {
+    /// The input contained `/` but was not a valid IPv4 network.
+    #[error("invalid IPv4 network")]
+    InvalidNetwork(#[source] ipnet::AddrParseError),
+    /// The input was not a valid IPv4 address.
+    #[error("invalid IPv4 address")]
+    InvalidAddress(#[source] ipnet::AddrParseError),
+    /// The network contains more usable addresses than the scan limit allows.
+    #[error("{network} contains more than {max} usable addresses; split networks larger than a /8")]
+    TooLarge {
+        /// The oversized network.
+        network: Ipv4Net,
+        /// The maximum number of usable addresses.
+        max: usize,
+    },
+}
+
+/// An error parsing or reading scan ports.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum PortsError {
+    /// A comma-separated item was empty.
+    #[error("empty port in {input:?}")]
+    EmptyItem {
+        /// The full port list that contained the empty item.
+        input: String,
+    },
+    /// A range contained more than one `-`.
+    #[error("invalid port range {item:?}")]
+    InvalidRange {
+        /// The malformed range item.
+        item: String,
+    },
+    /// A range's start was greater than its end.
+    #[error("reversed port range {item:?}")]
+    ReversedRange {
+        /// The reversed range item.
+        item: String,
+    },
+    /// A port was not a valid `u16`.
+    #[error("invalid TCP port {input:?}")]
+    InvalidPort {
+        /// The unparsable port text.
+        input: String,
+        /// The underlying integer parse error.
+        #[source]
+        source: ParseIntError,
+    },
+    /// Port zero was requested, which is not supported.
+    #[error("TCP port zero is not supported")]
+    PortZero,
+    /// The services file could not be read.
+    #[error("failed to read {}", path.display())]
+    ServicesFileRead {
+        /// The services file path.
+        path: PathBuf,
+        /// The underlying I/O error.
+        #[source]
+        source: io::Error,
+    },
+    /// The services file contained no TCP services.
+    #[error("{} contains no TCP services", path.display())]
+    NoTcpServices {
+        /// The services file path.
+        path: PathBuf,
+    },
+}
+
+/// An error that stopped probe transmission mid-scan.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum SendError {
+    /// The fixed-size SYN packet buffer could not be parsed back into an IPv4 packet.
+    #[error("failed to construct IPv4 packet")]
+    PacketConstruction,
+    /// Sending a probe failed.
+    #[error("failed to send SYN to {host}:{port}")]
+    Io {
+        /// The probe's destination host.
+        host: Ipv4Addr,
+        /// The probe's destination port.
+        port: u16,
+        /// The underlying I/O error.
+        #[source]
+        source: io::Error,
+    },
+    /// The `on_progress` callback returned an error.
+    #[error("callback failed")]
+    Callback(#[source] Box<dyn StdError + Send + Sync>),
+}
+
+/// An error running a scan.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum ScanError {
+    /// The scan had no targets or no ports.
+    #[error("at least one target and one port are required")]
+    EmptyScan,
+    /// The configured bandwidth was zero.
+    #[error("bandwidth must be greater than zero")]
+    ZeroBandwidth,
+    /// The configured bandwidth overflowed while converting to a packet rate.
+    #[error("bandwidth is too large")]
+    BandwidthOverflow,
+    /// Multiplying the target and port counts overflowed `usize`.
+    #[error("scan size overflow")]
+    ScanSizeOverflow,
+    /// The scan exceeds the maximum number of probes.
+    #[error(
+        "scan contains {probe_count} probes; maximum is {max} \
+         (one port on a /8 or all 65,535 ports on a /24); split larger scans"
+    )]
+    TooManyProbes {
+        /// The requested probe count.
+        probe_count: usize,
+        /// The maximum allowed probe count.
+        max: usize,
+    },
+    /// `ScanConfig` contained a duplicate target/port pair.
+    #[error("duplicate host/port pair {host}:{port}; ScanConfig targets and ports must be unique")]
+    DuplicatePair {
+        /// The duplicated target.
+        host: Ipv4Addr,
+        /// The duplicated port.
+        port: u16,
+    },
+    /// Creating the raw transport socket failed.
+    #[error("failed to create raw socket (run as root or grant CAP_NET_RAW)")]
+    SocketCreation(#[source] io::Error),
+    /// Receiving a raw packet failed.
+    #[error("failed to receive raw packet")]
+    Receive(#[source] io::Error),
+    /// The packet receiver thread panicked.
+    #[error("packet receiver thread panicked: {0}")]
+    ReceiverPanicked(String),
+    /// Transmission stopped after part of the scan was sent.
+    #[error(transparent)]
+    Incomplete(IncompleteScanError),
+    /// The `on_result` callback returned an error.
+    #[error("callback failed")]
+    Callback(#[source] Box<dyn StdError + Send + Sync>),
 }
 
 /// Configuration for one SYN scan.
@@ -214,11 +361,13 @@ impl ScanResult {
 /// # Errors
 ///
 /// Returns an error if the interface does not exist or has no IPv4 address.
-pub fn interface_ipv4(name: &str) -> anyhow::Result<Ipv4Addr> {
+pub fn interface_ipv4(name: &str) -> Result<Ipv4Addr, InterfaceError> {
     let interface = datalink::interfaces()
         .into_iter()
         .find(|interface| interface.name == name)
-        .ok_or_else(|| anyhow!("network interface {name:?} does not exist"))?;
+        .ok_or_else(|| InterfaceError::NotFound {
+            name: name.to_owned(),
+        })?;
 
     interface
         .ips
@@ -227,7 +376,9 @@ pub fn interface_ipv4(name: &str) -> anyhow::Result<Ipv4Addr> {
             IpAddr::V4(address) => Some(address),
             IpAddr::V6(_) => None,
         })
-        .ok_or_else(|| anyhow!("network interface {name:?} has no IPv4 address"))
+        .ok_or_else(|| InterfaceError::NoIpv4 {
+            name: name.to_owned(),
+        })
 }
 
 /// Expands an IPv4 address or CIDR into scan targets.
@@ -240,19 +391,19 @@ pub fn interface_ipv4(name: &str) -> anyhow::Result<Ipv4Addr> {
 ///
 /// Returns an error for malformed IPv4/CIDR input or a network containing more
 /// usable addresses than a `/8`.
-pub fn parse_targets(input: &str) -> anyhow::Result<Vec<Ipv4Addr>> {
+pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>, TargetsError> {
     let network: Ipv4Net = if input.contains('/') {
-        input.parse().context("invalid IPv4 network")?
+        input.parse().map_err(TargetsError::InvalidNetwork)?
     } else {
         format!("{input}/32")
             .parse()
-            .context("invalid IPv4 address")?
+            .map_err(TargetsError::InvalidAddress)?
     };
     if usable_target_count(network).is_none_or(|count| count > MAX_PROBES) {
-        bail!(
-            "{network} contains more than {MAX_PROBES} usable addresses; \
-             split networks larger than a /8"
-        );
+        return Err(TargetsError::TooLarge {
+            network,
+            max: MAX_PROBES,
+        });
     }
     Ok(network.hosts().collect())
 }
@@ -265,16 +416,20 @@ pub fn parse_targets(input: &str) -> anyhow::Result<Vec<Ipv4Addr>> {
 ///
 /// Returns an error for empty items, reversed ranges, port zero, or values
 /// larger than 65535.
-pub fn parse_ports(input: &str) -> anyhow::Result<Vec<u16>> {
+pub fn parse_ports(input: &str) -> Result<Vec<u16>, PortsError> {
     let mut ports = BTreeSet::new();
 
     for item in input.split(',') {
         if item.is_empty() {
-            bail!("empty port in {input:?}");
+            return Err(PortsError::EmptyItem {
+                input: input.to_owned(),
+            });
         }
         let (start, end) = if let Some((start, end)) = item.split_once('-') {
             if end.contains('-') {
-                bail!("invalid port range {item:?}");
+                return Err(PortsError::InvalidRange {
+                    item: item.to_owned(),
+                });
             }
             (parse_port(start)?, parse_port(end)?)
         } else {
@@ -282,7 +437,9 @@ pub fn parse_ports(input: &str) -> anyhow::Result<Vec<u16>> {
             (port, port)
         };
         if start > end {
-            bail!("reversed port range {item:?}");
+            return Err(PortsError::ReversedRange {
+                item: item.to_owned(),
+            });
         }
         ports.extend(start..=end);
     }
@@ -296,9 +453,12 @@ pub fn parse_ports(input: &str) -> anyhow::Result<Vec<u16>> {
 /// # Errors
 ///
 /// Returns an error when the file cannot be read or contains no TCP services.
-pub fn ports_from_services(path: impl AsRef<Path>) -> anyhow::Result<Vec<u16>> {
-    let contents = fs::read_to_string(path.as_ref())
-        .with_context(|| format!("failed to read {}", path.as_ref().display()))?;
+pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<u16>, PortsError> {
+    let contents =
+        fs::read_to_string(path.as_ref()).map_err(|source| PortsError::ServicesFileRead {
+            path: path.as_ref().to_path_buf(),
+            source,
+        })?;
     let mut ports = BTreeSet::new();
     for line in contents.lines() {
         let mut fields = line
@@ -315,7 +475,9 @@ pub fn ports_from_services(path: impl AsRef<Path>) -> anyhow::Result<Vec<u16>> {
         }
     }
     if ports.is_empty() {
-        bail!("{} contains no TCP services", path.as_ref().display());
+        return Err(PortsError::NoTcpServices {
+            path: path.as_ref().to_path_buf(),
+        });
     }
     Ok(ports.into_iter().collect())
 }
@@ -332,7 +494,7 @@ pub fn ports_from_services(path: impl AsRef<Path>) -> anyhow::Result<Vec<u16>> {
 /// failures, or receiver failures. A transmission-phase failure is returned as
 /// [`IncompleteScanError`], which retains results received for successfully
 /// sent probes.
-pub fn scan(config: &ScanConfig) -> anyhow::Result<Vec<ScanResult>> {
+pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>, ScanError> {
     scan_with_callbacks(config, |_| Ok(()), |_| Ok(()))
 }
 
@@ -347,8 +509,8 @@ pub fn scan(config: &ScanConfig) -> anyhow::Result<Vec<ScanResult>> {
 /// `on_result`.
 pub fn scan_with_callback(
     config: &ScanConfig,
-    on_result: impl FnMut(ScanResult) -> anyhow::Result<()> + Send + 'static,
-) -> anyhow::Result<Vec<ScanResult>> {
+    on_result: impl FnMut(ScanResult) -> Result<(), Box<dyn StdError + Send + Sync>> + Send + 'static,
+) -> Result<Vec<ScanResult>, ScanError> {
     scan_with_callbacks(config, on_result, |_| Ok(()))
 }
 
@@ -364,9 +526,11 @@ pub fn scan_with_callback(
 /// callback.
 pub fn scan_with_callbacks(
     config: &ScanConfig,
-    mut on_result: impl FnMut(ScanResult) -> anyhow::Result<()> + Send + 'static,
-    mut on_progress: impl FnMut(ScanProgress) -> anyhow::Result<()>,
-) -> anyhow::Result<Vec<ScanResult>> {
+    mut on_result: impl FnMut(ScanResult) -> Result<(), Box<dyn StdError + Send + Sync>>
+    + Send
+    + 'static,
+    mut on_progress: impl FnMut(ScanProgress) -> Result<(), Box<dyn StdError + Send + Sync>>,
+) -> Result<Vec<ScanResult>, ScanError> {
     let probe_count = validate_scan(config)?;
 
     let source_port = source_port();
@@ -375,8 +539,8 @@ pub fn scan_with_callbacks(
     let expected = Arc::new(expected);
 
     let protocol = TransportChannelType::Layer3(IpNextHeaderProtocols::Tcp);
-    let (mut sender, mut receiver) = transport_channel(1 << 20, protocol)
-        .context("failed to create raw socket (run as root or grant CAP_NET_RAW)")?;
+    let (mut sender, mut receiver) =
+        transport_channel(1 << 20, protocol).map_err(ScanError::SocketCreation)?;
 
     let done = Arc::new(AtomicBool::new(false));
     let receiver_done = Arc::clone(&done);
@@ -399,25 +563,29 @@ pub fn scan_with_callbacks(
     let bytes_per_second = config
         .bandwidth_kib
         .checked_mul(1024)
-        .ok_or_else(|| anyhow!("bandwidth is too large"))?;
+        .ok_or(ScanError::BandwidthOverflow)?;
     let packets_per_second = (bytes_per_second / 40).max(1);
     let interval = Duration::from_nanos(1_000_000_000_u64 / packets_per_second);
     let mut next_send = Instant::now();
     let started = next_send;
     let mut next_progress = ONE_MINUTE;
     let mut probes_sent = 0;
-    let send_result = (|| -> anyhow::Result<()> {
+    let send_result = (|| -> Result<(), SendError> {
         #[expect(
             clippy::iter_over_hash_type,
             reason = "randomized `HashMap` iteration order is deliberate; see README's Transmission order section"
         )]
         for (&(host, port), &sequence) in expected.iter() {
             let packet = syn_packet(config.source, host, source_port, port, sequence);
-            let ipv4_packet = MutableIpv4Packet::owned(packet)
-                .ok_or_else(|| anyhow!("failed to construct IPv4 packet"))?;
+            let ipv4_packet =
+                MutableIpv4Packet::owned(packet).ok_or(SendError::PacketConstruction)?;
             sender
                 .send_to(ipv4_packet, IpAddr::V4(host))
-                .with_context(|| format!("failed to send SYN to {host}:{port}"))?;
+                .map_err(|io_error| SendError::Io {
+                    host,
+                    port,
+                    source: io_error,
+                })?;
             probes_sent += 1;
             next_send += interval;
             if let Some(delay) = next_send.checked_duration_since(Instant::now()) {
@@ -430,7 +598,8 @@ pub fn scan_with_callbacks(
                     probes_sent,
                     total_probes: probe_count,
                     elapsed,
-                })?;
+                })
+                .map_err(SendError::Callback)?;
                 next_progress = advance_progress_deadline(next_progress, elapsed);
             }
         }
@@ -439,20 +608,16 @@ pub fn scan_with_callbacks(
     done.store(true, Ordering::Release);
 
     let mut results = receive_thread.join().map_err(|payload| {
-        anyhow!(
-            "packet receiver thread panicked: {}",
-            describe_panic_payload(&*payload)
-        )
+        ScanError::ReceiverPanicked(describe_panic_payload(&*payload).to_owned())
     })??;
     results.sort_unstable_by_key(|result| (u32::from(result.host), result.port));
     if let Err(e) = send_result {
-        return Err(IncompleteScanError {
+        return Err(ScanError::Incomplete(IncompleteScanError {
             source: e,
             partial_results: results,
             probes_sent,
             total_probes: probe_count,
-        }
-        .into());
+        }));
     }
     Ok(results)
 }
@@ -470,7 +635,7 @@ fn describe_panic_payload(payload: &(dyn Any + Send)) -> &str {
 }
 
 /// TODO.
-fn validate_scan(config: &ScanConfig) -> anyhow::Result<usize> {
+fn validate_scan(config: &ScanConfig) -> Result<usize, ScanError> {
     validate_probe_count(
         config.targets.len(),
         config.ports.len(),
@@ -493,7 +658,7 @@ fn expected_responses(
     config: &ScanConfig,
     nonce: u32,
     probe_count: usize,
-) -> anyhow::Result<HashMap<(Ipv4Addr, u16), u32>> {
+) -> Result<HashMap<(Ipv4Addr, u16), u32>, ScanError> {
     let mut expected = HashMap::with_capacity(probe_count);
     for &host in &config.targets {
         for &port in &config.ports {
@@ -501,10 +666,7 @@ fn expected_responses(
                 .insert((host, port), sequence(host, port, nonce))
                 .is_some()
             {
-                bail!(
-                    "duplicate host/port pair {host}:{port}; \
-                     ScanConfig targets and ports must be unique"
-                );
+                return Err(ScanError::DuplicatePair { host, port });
             }
         }
     }
@@ -516,21 +678,21 @@ fn validate_probe_count(
     target_count: usize,
     port_count: usize,
     bandwidth_kib: u64,
-) -> anyhow::Result<usize> {
+) -> Result<usize, ScanError> {
     if target_count == 0 || port_count == 0 {
-        bail!("at least one target and one port are required");
+        return Err(ScanError::EmptyScan);
     }
     if bandwidth_kib == 0 {
-        bail!("bandwidth must be greater than zero");
+        return Err(ScanError::ZeroBandwidth);
     }
     let probe_count = target_count
         .checked_mul(port_count)
-        .ok_or_else(|| anyhow!("scan size overflow"))?;
+        .ok_or(ScanError::ScanSizeOverflow)?;
     if probe_count > MAX_PROBES {
-        bail!(
-            "scan contains {probe_count} probes; maximum is {MAX_PROBES} \
-             (one port on a /8 or all 65,535 ports on a /24); split larger scans"
-        );
+        return Err(ScanError::TooManyProbes {
+            probe_count,
+            max: MAX_PROBES,
+        });
     }
     Ok(probe_count)
 }
@@ -556,12 +718,13 @@ fn next_progress_deadline(previous: Duration) -> Duration {
 }
 
 /// TODO.
-fn parse_port(input: &str) -> anyhow::Result<u16> {
-    let port: u16 = input
-        .parse()
-        .with_context(|| format!("invalid TCP port {input:?}"))?;
+fn parse_port(input: &str) -> Result<u16, PortsError> {
+    let port: u16 = input.parse().map_err(|source| PortsError::InvalidPort {
+        input: input.to_owned(),
+        source,
+    })?;
     if port == 0 {
-        bail!("TCP port zero is not supported");
+        return Err(PortsError::PortZero);
     }
     Ok(port)
 }
@@ -655,8 +818,8 @@ struct ReceiveConfig<'a> {
 fn receive(
     receiver: &mut TransportReceiver,
     config: &ReceiveConfig<'_>,
-    on_result: &mut impl FnMut(ScanResult) -> anyhow::Result<()>,
-) -> anyhow::Result<Vec<ScanResult>> {
+    on_result: &mut impl FnMut(ScanResult) -> Result<(), Box<dyn StdError + Send + Sync>>,
+) -> Result<Vec<ScanResult>, ScanError> {
     let mut iterator = ipv4_packet_iter(receiver);
     let mut results = Vec::new();
     let mut seen = HashSet::new();
@@ -675,7 +838,7 @@ fn receive(
             .min(Duration::from_millis(100));
         let Some((ipv4, _)) = iterator
             .next_with_timeout(wait)
-            .context("failed to receive raw packet")?
+            .map_err(ScanError::Receive)?
         else {
             continue;
         };
@@ -689,7 +852,7 @@ fn receive(
         ) else {
             continue;
         };
-        on_result(result)?;
+        on_result(result).map_err(ScanError::Callback)?;
         results.push(result);
     }
     Ok(results)
@@ -736,10 +899,9 @@ fn classify_response(
 #[expect(clippy::panic_in_result_fn, reason = "panics are allowed in test code")]
 #[expect(clippy::unwrap_used, reason = "tests can use `unwrap`")]
 mod tests {
-    use std::error::Error;
     use std::path::PathBuf;
     use std::sync::atomic::AtomicUsize;
-    use std::{env, fs, process};
+    use std::{env, fs, io, process};
 
     use super::*;
 
@@ -791,7 +953,7 @@ mod tests {
     fn services_from(contents: &str) -> anyhow::Result<Vec<u16>> {
         let path = services_path();
         fs::write(&path, contents)?;
-        let result = ports_from_services(&path);
+        let result = ports_from_services(&path).map_err(anyhow::Error::from);
         fs::remove_file(path)?;
         result
     }
@@ -1214,13 +1376,18 @@ zero            0/tcp
 
     #[test]
     fn incomplete_scan_error_preserves_context() {
+        let host = "172.16.100.2".parse().unwrap();
         let partial_result = ScanResult {
-            host: "172.16.100.2".parse().unwrap(),
+            host,
             port: 443,
             state: PortState::Open,
         };
         let incomplete = IncompleteScanError {
-            source: anyhow!("send failed"),
+            source: SendError::Io {
+                host,
+                port: 443,
+                source: io::Error::other("send failed"),
+            },
             partial_results: vec![partial_result],
             probes_sent: 7,
             total_probes: 10,
@@ -1234,15 +1401,16 @@ zero            0/tcp
             "scan stopped after sending 7 of 10 probes"
         );
         assert_eq!(
-            Error::source(&incomplete).unwrap().to_string(),
-            "send failed"
+            StdError::source(&incomplete).unwrap().to_string(),
+            "failed to send SYN to 172.16.100.2:443"
         );
 
         let error: anyhow::Error = incomplete.into();
         assert!(error.downcast_ref::<IncompleteScanError>().is_some());
         assert_eq!(
             format!("{error:#}"),
-            "scan stopped after sending 7 of 10 probes: send failed"
+            "scan stopped after sending 7 of 10 probes: \
+             failed to send SYN to 172.16.100.2:443: send failed"
         );
     }
 

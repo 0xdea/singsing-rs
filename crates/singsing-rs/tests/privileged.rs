@@ -9,6 +9,7 @@
 #![expect(clippy::unwrap_used, reason = "tests can use `unwrap`")]
 #![expect(clippy::expect_used, reason = "tests can use `expect`")]
 
+use std::error::Error;
 use std::net::{Ipv4Addr, TcpListener};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::mpsc;
@@ -104,7 +105,7 @@ fn delivers_callback_and_final_result() {
     let results = scan_with_callback(&scan_config(vec![port], false), move |result| {
         sender
             .send(result)
-            .map_err(|error| anyhow::anyhow!("failed to forward callback result: {error}"))
+            .map_err(Box::<dyn Error + Send + Sync>::from)
     })
     .unwrap();
     let callbacks: Vec<_> = receiver.into_iter().collect();

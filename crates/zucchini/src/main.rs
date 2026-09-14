@@ -5,6 +5,7 @@
     html_logo_url = "https://raw.githubusercontent.com/0xdea/singsing-rs/master/.img/logo_zucchini.png"
 )]
 
+use std::error::Error;
 use std::fmt;
 use std::io::{self, Write};
 use std::net::Ipv4Addr;
@@ -16,8 +17,8 @@ use anyhow::Context as _;
 use chrono::{DateTime, Duration as ChronoDuration, Local, TimeZone};
 use clap::Parser;
 use singsing_rs::{
-    IncompleteScanError, PortState, ScanConfig, ScanProgress, ScanResult, interface_ipv4,
-    parse_ports, parse_targets, ports_from_services, scan_with_callbacks,
+    PortState, PortsError, ScanConfig, ScanError, ScanProgress, ScanResult, TargetsError,
+    interface_ipv4, parse_ports, parse_targets, ports_from_services, scan_with_callbacks,
 };
 
 /// Package name.
@@ -37,9 +38,9 @@ const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 struct Targets(Vec<Ipv4Addr>);
 
 impl FromStr for Targets {
-    type Err = anyhow::Error;
+    type Err = TargetsError;
 
-    fn from_str(input: &str) -> anyhow::Result<Self> {
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
         parse_targets(input).map(Self)
     }
 }
@@ -51,9 +52,9 @@ impl FromStr for Targets {
 struct Ports(Vec<u16>);
 
 impl FromStr for Ports {
-    type Err = anyhow::Error;
+    type Err = PortsError;
 
-    fn from_str(input: &str) -> anyhow::Result<Self> {
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
         parse_ports(input).map(Self)
     }
 }
@@ -139,21 +140,27 @@ fn run() -> anyhow::Result<()> {
             } else {
                 Ok(())
             }
+            .map_err(|e| to_boxed_error(&e))
         },
-        write_progress,
+        move |progress| write_progress(progress).map_err(|e| to_boxed_error(&e)),
     );
 
     match scan_result {
         Ok(results) => write_results(&results)?,
         Err(e) => {
-            if let Some(incomplete) = e.downcast_ref::<IncompleteScanError>() {
+            if let ScanError::Incomplete(incomplete) = &e {
                 write_results(incomplete.partial_results())?;
             }
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     write_done_summary(probes, started.elapsed().as_secs_f64())
+}
+
+/// Adapts an `anyhow::Error` from a `write_*` helper into the boxed error type the scanning library's callbacks expect.
+fn to_boxed_error(error: &anyhow::Error) -> Box<dyn Error + Send + Sync> {
+    format!("{error:#}").into()
 }
 
 /// Prints the program banner to stderr, flushed immediately.
