@@ -42,36 +42,6 @@ const THIRTY_MINUTES: Duration = Duration::from_mins(30);
 /// One hour duration.
 const ONE_HOUR: Duration = Duration::from_hours(1);
 
-/// The state inferred from a TCP response.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[non_exhaustive]
-pub enum PortState {
-    /// A SYN/ACK was received.
-    Open,
-    /// A RST was received.
-    Closed,
-}
-
-/// One response produced by a scan.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[non_exhaustive]
-pub struct ScanResult {
-    /// The responding host.
-    pub host: Ipv4Addr,
-    /// The responding TCP port.
-    pub port: u16,
-    /// The inferred port state.
-    pub state: PortState,
-}
-
-impl ScanResult {
-    /// Creates a scan result for the given host, port, and inferred state.
-    #[must_use]
-    pub const fn new(host: Ipv4Addr, port: u16, state: PortState) -> Self {
-        Self { host, port, state }
-    }
-}
-
 /// An error that stopped transmission after part of a scan was sent.
 #[derive(Debug)]
 pub struct IncompleteScanError {
@@ -105,6 +75,16 @@ impl IncompleteScanError {
     }
 }
 
+#[expect(
+    clippy::missing_trait_methods,
+    reason = "`description`/`cause` are deprecated and `type_id`/`provide` should not be overridden"
+)]
+impl Error for IncompleteScanError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(self.source.as_ref())
+    }
+}
+
 impl fmt::Display for IncompleteScanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -115,13 +95,43 @@ impl fmt::Display for IncompleteScanError {
     }
 }
 
-#[expect(
-    clippy::missing_trait_methods,
-    reason = "`description`/`cause` are deprecated and `type_id`/`provide` should not be overridden"
-)]
-impl Error for IncompleteScanError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(self.source.as_ref())
+/// Configuration for one SYN scan.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct ScanConfig {
+    /// IPv4 addresses to scan.
+    ///
+    /// Addresses must be unique.
+    pub targets: Vec<Ipv4Addr>,
+    /// TCP ports to scan.
+    ///
+    /// Ports must be unique.
+    pub ports: Vec<u16>,
+    /// Source IPv4 address assigned to the selected interface.
+    pub source: Ipv4Addr,
+    /// Approximate maximum packet bandwidth in KiB/s.
+    ///
+    /// [`ScanConfig::new`] defaults this to 15 KiB/s, or approximately 384
+    /// probes per second with the scanner's 40-byte packet accounting.
+    pub bandwidth_kib: u64,
+    /// Time to listen for late replies after the final probe.
+    pub timeout: Duration,
+    /// Whether RST responses should be returned.
+    pub show_closed: bool,
+}
+
+impl ScanConfig {
+    /// Creates a configuration with 15 KiB/s bandwidth and a 30-second timeout.
+    #[must_use]
+    pub const fn new(targets: Vec<Ipv4Addr>, ports: Vec<u16>, source: Ipv4Addr) -> Self {
+        Self {
+            targets,
+            ports,
+            source,
+            bandwidth_kib: 15,
+            timeout: Duration::from_secs(30),
+            show_closed: false,
+        }
     }
 }
 
@@ -169,43 +179,33 @@ impl ScanProgress {
     }
 }
 
-/// Configuration for one SYN scan.
-#[derive(Clone, Debug)]
+/// The state inferred from a TCP response.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub struct ScanConfig {
-    /// IPv4 addresses to scan.
-    ///
-    /// Addresses must be unique.
-    pub targets: Vec<Ipv4Addr>,
-    /// TCP ports to scan.
-    ///
-    /// Ports must be unique.
-    pub ports: Vec<u16>,
-    /// Source IPv4 address assigned to the selected interface.
-    pub source: Ipv4Addr,
-    /// Approximate maximum packet bandwidth in KiB/s.
-    ///
-    /// [`ScanConfig::new`] defaults this to 15 KiB/s, or approximately 384
-    /// probes per second with the scanner's 40-byte packet accounting.
-    pub bandwidth_kib: u64,
-    /// Time to listen for late replies after the final probe.
-    pub timeout: Duration,
-    /// Whether RST responses should be returned.
-    pub show_closed: bool,
+pub enum PortState {
+    /// A SYN/ACK was received.
+    Open,
+    /// A RST was received.
+    Closed,
 }
 
-impl ScanConfig {
-    /// Creates a configuration with 15 KiB/s bandwidth and a 30-second timeout.
+/// One response produced by a scan.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct ScanResult {
+    /// The responding host.
+    pub host: Ipv4Addr,
+    /// The responding TCP port.
+    pub port: u16,
+    /// The inferred port state.
+    pub state: PortState,
+}
+
+impl ScanResult {
+    /// Creates a scan result for the given host, port, and inferred state.
     #[must_use]
-    pub const fn new(targets: Vec<Ipv4Addr>, ports: Vec<u16>, source: Ipv4Addr) -> Self {
-        Self {
-            targets,
-            ports,
-            source,
-            bandwidth_kib: 15,
-            timeout: Duration::from_secs(30),
-            show_closed: false,
-        }
+    pub const fn new(host: Ipv4Addr, port: u16, state: PortState) -> Self {
+        Self { host, port, state }
     }
 }
 
