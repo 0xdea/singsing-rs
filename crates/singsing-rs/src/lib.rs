@@ -9,7 +9,7 @@
 compile_error!("singsing-rs only supports Linux (see the Compatibility section in README.md)");
 
 use std::any::Any;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
@@ -259,45 +259,39 @@ pub fn parse_targets(input: &str) -> anyhow::Result<Vec<Ipv4Addr>> {
 
 /// Parses comma-separated ports and inclusive ranges such as `22,80,8000-8010`.
 ///
-/// Duplicate ports are removed while preserving their first occurrence.
+/// Duplicate ports are removed and the result is returned in ascending order.
 ///
 /// # Errors
 ///
 /// Returns an error for empty items, reversed ranges, port zero, or values
 /// larger than 65535.
 pub fn parse_ports(input: &str) -> anyhow::Result<Vec<u16>> {
-    let mut ports = Vec::new();
-    let mut seen = HashSet::new();
+    let mut ports = BTreeSet::new();
 
     for item in input.split(',') {
         if item.is_empty() {
             bail!("empty port in {input:?}");
         }
-        if let Some((start, end)) = item.split_once('-') {
+        let (start, end) = if let Some((start, end)) = item.split_once('-') {
             if end.contains('-') {
                 bail!("invalid port range {item:?}");
             }
-            let start = parse_port(start)?;
-            let end = parse_port(end)?;
-            if start > end {
-                bail!("reversed port range {item:?}");
-            }
-            for port in start..=end {
-                if seen.insert(port) {
-                    ports.push(port);
-                }
-            }
+            (parse_port(start)?, parse_port(end)?)
         } else {
             let port = parse_port(item)?;
-            if seen.insert(port) {
-                ports.push(port);
-            }
+            (port, port)
+        };
+        if start > end {
+            bail!("reversed port range {item:?}");
         }
+        ports.extend(start..=end);
     }
-    Ok(ports)
+    Ok(ports.into_iter().collect())
 }
 
 /// Reads TCP ports from a services file (normally `/etc/services`).
+///
+/// Duplicate ports are removed and the result is returned in ascending order.
 ///
 /// # Errors
 ///
@@ -305,8 +299,7 @@ pub fn parse_ports(input: &str) -> anyhow::Result<Vec<u16>> {
 pub fn ports_from_services(path: impl AsRef<Path>) -> anyhow::Result<Vec<u16>> {
     let contents = fs::read_to_string(path.as_ref())
         .with_context(|| format!("failed to read {}", path.as_ref().display()))?;
-    let mut ports = Vec::new();
-    let mut seen = HashSet::new();
+    let mut ports = BTreeSet::new();
     for line in contents.lines() {
         let mut fields = line
             .split('#')
@@ -317,15 +310,14 @@ pub fn ports_from_services(path: impl AsRef<Path>) -> anyhow::Result<Vec<u16>> {
         if let Some(port_protocol) = fields.next()
             && let Some((port, "tcp")) = port_protocol.split_once('/')
             && let Ok(port) = parse_port(port)
-            && seen.insert(port)
         {
-            ports.push(port);
+            ports.insert(port);
         }
     }
     if ports.is_empty() {
         bail!("{} contains no TCP services", path.as_ref().display());
     }
-    Ok(ports)
+    Ok(ports.into_iter().collect())
 }
 
 /// Executes a Linux IPv4 SYN scan.
@@ -806,7 +798,7 @@ mod tests {
 
     #[test]
     fn parses_ports_ranges_and_duplicates() {
-        assert_eq!(parse_ports("22,80,79-81").unwrap(), [22, 80, 79, 81]);
+        assert_eq!(parse_ports("22,80,79-81").unwrap(), [22, 79, 80, 81]);
     }
 
     #[test]
