@@ -14,7 +14,7 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
-use chrono::{DateTime, Duration as ChronoDuration, Local, TimeZone};
+use chrono::{DateTime, Local, TimeZone};
 use clap::Parser;
 use singsing_rs::{
     PortState, PortsError, ScanConfig, ScanError, ScanProgress, ScanResult, TargetsError,
@@ -281,7 +281,7 @@ where
 {
     let eta = progress
         .estimated_remaining()
-        .and_then(|remaining| ChronoDuration::from_std(remaining).ok())
+        .and_then(|remaining| chrono::Duration::from_std(remaining).ok())
         .and_then(|remaining| now.checked_add_signed(remaining))
         .map_or_else(
             || "unknown".to_owned(),

@@ -10,7 +10,7 @@ compile_error!("singsing-rs only supports Linux (see the Compatibility section i
 
 use std::any::Any;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::error::Error as StdError;
+use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr};
 use std::num::ParseIntError;
 use std::path::{Path, PathBuf};
@@ -22,13 +22,12 @@ use std::{fs, io, thread};
 use ipnet::Ipv4Net;
 use pnet::datalink;
 use pnet::packet::ip::IpNextHeaderProtocols;
-use pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet, checksum as ipv4_checksum};
-use pnet::packet::tcp::{MutableTcpPacket, TcpFlags, TcpPacket, ipv4_checksum as tcp_checksum};
+use pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet, checksum};
+use pnet::packet::tcp::{MutableTcpPacket, TcpFlags, TcpPacket, ipv4_checksum};
 use pnet::packet::{MutablePacket as _, Packet as _};
 use pnet::transport::{
     TransportChannelType, TransportReceiver, ipv4_packet_iter, transport_channel,
 };
-use thiserror::Error;
 
 /// The packet length used for scanning.
 const PACKET_LEN: usize = 40;
@@ -44,7 +43,7 @@ const THIRTY_MINUTES: Duration = Duration::from_mins(30);
 const ONE_HOUR: Duration = Duration::from_hours(1);
 
 /// An error that stopped transmission after part of a scan was sent.
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 #[error("scan stopped after sending {probes_sent} of {total_probes} probes")]
 pub struct IncompleteScanError {
     /// The error that caused the incomplete scan.
@@ -79,7 +78,7 @@ impl IncompleteScanError {
 }
 
 /// An error resolving a network interface's IPv4 address.
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum InterfaceError {
     /// No interface with the given name exists.
@@ -97,7 +96,7 @@ pub enum InterfaceError {
 }
 
 /// An error parsing scan targets.
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum TargetsError {
     /// The input contained `/` but was not a valid IPv4 network.
@@ -117,7 +116,7 @@ pub enum TargetsError {
 }
 
 /// An error parsing or reading scan ports.
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum PortsError {
     /// A comma-separated item was empty.
@@ -168,7 +167,7 @@ pub enum PortsError {
 }
 
 /// An error that stopped probe transmission mid-scan.
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum SendError {
     /// The fixed-size SYN packet buffer could not be parsed back into an IPv4 packet.
@@ -187,11 +186,11 @@ pub enum SendError {
     },
     /// The `on_progress` callback returned an error.
     #[error("callback failed")]
-    Callback(#[source] Box<dyn StdError + Send + Sync>),
+    Callback(#[source] Box<dyn Error + Send + Sync>),
 }
 
 /// An error running a scan.
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ScanError {
     /// The scan had no targets or no ports.
@@ -239,7 +238,7 @@ pub enum ScanError {
     Incomplete(IncompleteScanError),
     /// The `on_result` callback returned an error.
     #[error("callback failed")]
-    Callback(#[source] Box<dyn StdError + Send + Sync>),
+    Callback(#[source] Box<dyn Error + Send + Sync>),
 }
 
 /// Configuration for one SYN scan.
@@ -509,7 +508,7 @@ pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>, ScanError> {
 /// `on_result`.
 pub fn scan_with_callback(
     config: &ScanConfig,
-    on_result: impl FnMut(ScanResult) -> Result<(), Box<dyn StdError + Send + Sync>> + Send + 'static,
+    on_result: impl FnMut(ScanResult) -> Result<(), Box<dyn Error + Send + Sync>> + Send + 'static,
 ) -> Result<Vec<ScanResult>, ScanError> {
     scan_with_callbacks(config, on_result, |_| Ok(()))
 }
@@ -526,10 +525,8 @@ pub fn scan_with_callback(
 /// callback.
 pub fn scan_with_callbacks(
     config: &ScanConfig,
-    mut on_result: impl FnMut(ScanResult) -> Result<(), Box<dyn StdError + Send + Sync>>
-    + Send
-    + 'static,
-    mut on_progress: impl FnMut(ScanProgress) -> Result<(), Box<dyn StdError + Send + Sync>>,
+    mut on_result: impl FnMut(ScanResult) -> Result<(), Box<dyn Error + Send + Sync>> + Send + 'static,
+    mut on_progress: impl FnMut(ScanProgress) -> Result<(), Box<dyn Error + Send + Sync>>,
 ) -> Result<Vec<ScanResult>, ScanError> {
     let probe_count = validate_scan(config)?;
 
@@ -793,8 +790,8 @@ fn syn_packet(
     tcp.set_data_offset(5);
     tcp.set_flags(TcpFlags::SYN);
     tcp.set_window(64240);
-    tcp.set_checksum(tcp_checksum(&tcp.to_immutable(), &source, &destination));
-    ipv4.set_checksum(ipv4_checksum(&ipv4.to_immutable()));
+    tcp.set_checksum(ipv4_checksum(&tcp.to_immutable(), &source, &destination));
+    ipv4.set_checksum(checksum(&ipv4.to_immutable()));
     bytes
 }
 
@@ -818,7 +815,7 @@ struct ReceiveConfig<'a> {
 fn receive(
     receiver: &mut TransportReceiver,
     config: &ReceiveConfig<'_>,
-    on_result: &mut impl FnMut(ScanResult) -> Result<(), Box<dyn StdError + Send + Sync>>,
+    on_result: &mut impl FnMut(ScanResult) -> Result<(), Box<dyn Error + Send + Sync>>,
 ) -> Result<Vec<ScanResult>, ScanError> {
     let mut iterator = ipv4_packet_iter(receiver);
     let mut results = Vec::new();
@@ -1050,13 +1047,13 @@ mod tests {
         ip_for_checksum.set_checksum(0);
         assert_eq!(
             ipv4.get_checksum(),
-            ipv4_checksum(&ip_for_checksum.to_immutable())
+            checksum(&ip_for_checksum.to_immutable())
         );
         let mut tcp_for_checksum = MutableTcpPacket::owned(tcp.packet().to_vec()).unwrap();
         tcp_for_checksum.set_checksum(0);
         assert_eq!(
             tcp.get_checksum(),
-            tcp_checksum(&tcp_for_checksum.to_immutable(), &source, &destination)
+            ipv4_checksum(&tcp_for_checksum.to_immutable(), &source, &destination)
         );
         assert_eq!(tcp.packet().len(), 20);
         assert!(tcp.payload().is_empty());
@@ -1401,7 +1398,7 @@ zero            0/tcp
             "scan stopped after sending 7 of 10 probes"
         );
         assert_eq!(
-            StdError::source(&incomplete).unwrap().to_string(),
+            Error::source(&incomplete).unwrap().to_string(),
             "failed to send SYN to 172.16.100.2:443"
         );
 
