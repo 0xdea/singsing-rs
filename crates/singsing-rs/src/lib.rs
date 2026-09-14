@@ -539,6 +539,10 @@ fn parse_port(input: &str) -> anyhow::Result<u16> {
 }
 
 /// TODO.
+#[expect(
+    clippy::as_conversions,
+    reason = "`nonce() % 16384` is always in `0..16384`, so it always fits in a `u16`"
+)]
 fn source_port() -> u16 {
     49152 + (nonce() % 16384) as u16
 }
@@ -568,16 +572,29 @@ fn syn_packet(
     sequence: u32,
 ) -> Vec<u8> {
     let mut bytes = vec![0_u8; PACKET_LEN];
+
+    #[expect(
+        clippy::expect_used,
+        reason = "`bytes` is exactly `PACKET_LEN`, sized to fit one IPv4 header and one TCP header, so packet construction cannot fail"
+    )]
     let mut ipv4 = MutableIpv4Packet::new(&mut bytes).expect("fixed-size IPv4 packet");
     ipv4.set_version(4);
     ipv4.set_header_length(5);
     ipv4.set_total_length(40);
+    #[expect(
+        clippy::as_conversions,
+        reason = "`sequence >> 16` keeps only the top 16 bits, so it always fits in a `u16`"
+    )]
     ipv4.set_identification((sequence >> 16) as u16);
     ipv4.set_ttl(64);
     ipv4.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
     ipv4.set_source(source);
     ipv4.set_destination(destination);
 
+    #[expect(
+        clippy::expect_used,
+        reason = "`bytes` is exactly `PACKET_LEN`, sized to fit one IPv4 header and one TCP header, so packet construction cannot fail"
+    )]
     let mut tcp = MutableTcpPacket::new(ipv4.payload_mut()).expect("fixed-size TCP packet");
     tcp.set_source(source_port);
     tcp.set_destination(destination_port);
