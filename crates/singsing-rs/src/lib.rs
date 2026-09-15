@@ -33,6 +33,8 @@ use pnet::transport::{
 const PACKET_LEN: usize = 40;
 /// The maximum number of probes to send during a scan.
 const MAX_PROBES: usize = 16_777_214;
+/// The maximum time to listen for late replies after the final probe.
+const MAX_TIMEOUT: Duration = Duration::from_hours(24);
 /// One minute duration.
 const ONE_MINUTE: Duration = Duration::from_mins(1);
 /// Ten minute duration.
@@ -202,6 +204,14 @@ pub enum ScanError {
     /// The configured bandwidth overflowed while converting to a packet rate.
     #[error("bandwidth is too large")]
     BandwidthOverflow,
+    /// The configured timeout exceeds the maximum.
+    #[error("timeout of {timeout:?} exceeds the maximum of {max:?}")]
+    TimeoutTooLarge {
+        /// The requested timeout.
+        timeout: Duration,
+        /// The maximum allowed timeout.
+        max: Duration,
+    },
     /// Multiplying the target and port counts overflowed `usize`.
     #[error("scan size overflow")]
     ScanSizeOverflow,
@@ -261,6 +271,8 @@ pub struct ScanConfig {
     /// probes per second with the scanner's 40-byte packet accounting.
     pub bandwidth_kib: u64,
     /// Time to listen for late replies after the final probe.
+    ///
+    /// Capped at 24 hours; [`ScanConfig::new`] defaults this to 30 seconds.
     pub timeout: Duration,
     /// Whether RST responses should be returned.
     pub show_closed: bool,
@@ -489,10 +501,10 @@ pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<u16>, PortsErro
 /// # Errors
 ///
 /// Returns an error for an empty or excessively large scan, invalid bandwidth,
-/// duplicate targets or ports, raw socket permission failures, packet send
-/// failures, or receiver failures. A transmission-phase failure is returned as
-/// [`IncompleteScanError`], which retains results received for successfully
-/// sent probes.
+/// an excessive timeout, duplicate targets or ports, raw socket permission
+/// failures, packet send failures, or receiver failures. A transmission-phase
+/// failure is returned as [`IncompleteScanError`], which retains results
+/// received for successfully sent probes.
 pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>, ScanError> {
     scan_with_callbacks(config, |_| Ok(()), |_| Ok(()))
 }
@@ -637,6 +649,7 @@ fn validate_scan(config: &ScanConfig) -> Result<usize, ScanError> {
         config.targets.len(),
         config.ports.len(),
         config.bandwidth_kib,
+        config.timeout,
     )
 }
 
@@ -675,12 +688,19 @@ fn validate_probe_count(
     target_count: usize,
     port_count: usize,
     bandwidth_kib: u64,
+    timeout: Duration,
 ) -> Result<usize, ScanError> {
     if target_count == 0 || port_count == 0 {
         return Err(ScanError::EmptyScan);
     }
     if bandwidth_kib == 0 {
         return Err(ScanError::ZeroBandwidth);
+    }
+    if timeout > MAX_TIMEOUT {
+        return Err(ScanError::TimeoutTooLarge {
+            timeout,
+            max: MAX_TIMEOUT,
+        });
     }
     let probe_count = target_count
         .checked_mul(port_count)
@@ -1306,15 +1326,28 @@ mod tests {
 
     #[test]
     fn validates_scan_limits_and_configuration() {
-        assert_eq!(validate_probe_count(254, 65_535, 15).unwrap(), 16_645_890);
-        assert_eq!(validate_probe_count(256, 65_535, 15).unwrap(), 16_776_960);
-        assert_eq!(validate_probe_count(MAX_PROBES, 1, 15).unwrap(), MAX_PROBES);
-        validate_probe_count(257, 65_535, 15).unwrap_err();
-        validate_probe_count(MAX_PROBES + 1, 1, 15).unwrap_err();
-        validate_probe_count(usize::MAX, 2, 15).unwrap_err();
-        validate_probe_count(0, 1, 15).unwrap_err();
-        validate_probe_count(1, 0, 15).unwrap_err();
-        validate_probe_count(1, 1, 0).unwrap_err();
+        let timeout = Duration::from_secs(30);
+
+        assert_eq!(
+            validate_probe_count(254, 65_535, 15, timeout).unwrap(),
+            16_645_890
+        );
+        assert_eq!(
+            validate_probe_count(256, 65_535, 15, timeout).unwrap(),
+            16_776_960
+        );
+        assert_eq!(
+            validate_probe_count(MAX_PROBES, 1, 15, timeout).unwrap(),
+            MAX_PROBES
+        );
+        assert_eq!(validate_probe_count(1, 1, 15, MAX_TIMEOUT).unwrap(), 1);
+        validate_probe_count(257, 65_535, 15, timeout).unwrap_err();
+        validate_probe_count(MAX_PROBES + 1, 1, 15, timeout).unwrap_err();
+        validate_probe_count(usize::MAX, 2, 15, timeout).unwrap_err();
+        validate_probe_count(0, 1, 15, timeout).unwrap_err();
+        validate_probe_count(1, 0, 15, timeout).unwrap_err();
+        validate_probe_count(1, 1, 0, timeout).unwrap_err();
+        validate_probe_count(1, 1, 15, MAX_TIMEOUT + Duration::from_secs(1)).unwrap_err();
     }
 
     #[test]

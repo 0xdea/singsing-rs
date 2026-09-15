@@ -99,8 +99,8 @@ struct Arguments {
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("[!] Error: {e:#}");
+        Err(error) => {
+            eprintln!("[!] Error: {error:#}");
             ExitCode::FAILURE
         }
     }
@@ -119,9 +119,9 @@ fn run() -> anyhow::Result<()> {
     let source = interface_ipv4(&args.interface)?;
 
     let mut config = ScanConfig::new(host, ports, source);
+    config.show_closed = args.closed;
     config.bandwidth_kib = args.bandwidth;
     config.timeout = Duration::from_secs(args.timeout);
-    config.show_closed = args.closed;
 
     let probes = config
         .targets
@@ -140,18 +140,18 @@ fn run() -> anyhow::Result<()> {
             } else {
                 Ok(())
             }
-            .map_err(|e| to_boxed_error(&e))
+            .map_err(|error| to_boxed_error(&error))
         },
-        move |progress| write_progress(progress).map_err(|e| to_boxed_error(&e)),
+        move |progress| write_progress(progress).map_err(|error| to_boxed_error(&error)),
     );
 
     match scan_result {
         Ok(results) => write_results(&results)?,
-        Err(e) => {
-            if let ScanError::Incomplete(incomplete) = &e {
+        Err(error) => {
+            if let ScanError::Incomplete(incomplete) = &error {
                 write_results(incomplete.partial_results())?;
             }
-            return Err(e.into());
+            return Err(error.into());
         }
     }
 
