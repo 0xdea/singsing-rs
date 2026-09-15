@@ -982,10 +982,23 @@ mod tests {
 
     #[test]
     fn rejects_invalid_ports() {
-        parse_ports("0").unwrap_err();
-        parse_ports("80-79").unwrap_err();
-        parse_ports("65536").unwrap_err();
-        parse_ports("22,").unwrap_err();
+        assert!(matches!(parse_ports("0"), Err(PortsError::PortZero)));
+        assert!(matches!(
+            parse_ports("80-79"),
+            Err(PortsError::ReversedRange { item }) if item == "80-79"
+        ));
+        assert!(matches!(
+            parse_ports("65536"),
+            Err(PortsError::InvalidPort { input, .. }) if input == "65536"
+        ));
+        assert!(matches!(
+            parse_ports("22,"),
+            Err(PortsError::EmptyItem { input }) if input == "22,"
+        ));
+        assert!(matches!(
+            parse_ports("1-2-3"),
+            Err(PortsError::InvalidRange { item }) if item == "1-2-3"
+        ));
     }
 
     #[test]
@@ -1023,9 +1036,18 @@ mod tests {
                 "192.168.2.6".parse::<Ipv4Addr>().unwrap()
             ]
         );
-        parse_targets("").unwrap_err();
-        parse_targets("not-an-address").unwrap_err();
-        parse_targets("192.168.2.1/33").unwrap_err();
+        assert!(matches!(
+            parse_targets(""),
+            Err(TargetsError::InvalidAddress(_))
+        ));
+        assert!(matches!(
+            parse_targets("not-an-address"),
+            Err(TargetsError::InvalidAddress(_))
+        ));
+        assert!(matches!(
+            parse_targets("192.168.2.1/33"),
+            Err(TargetsError::InvalidNetwork(_))
+        ));
     }
 
     #[test]
@@ -1037,8 +1059,29 @@ mod tests {
         assert_eq!(usable_target_count(slash_8), Some(MAX_PROBES));
         assert_eq!(usable_target_count(slash_31), Some(2));
         assert_eq!(usable_target_count(slash_32), Some(1));
-        parse_targets("10.0.0.0/7").unwrap_err();
-        parse_targets("0.0.0.0/0").unwrap_err();
+        assert!(matches!(
+            parse_targets("10.0.0.0/7"),
+            Err(TargetsError::TooLarge { max, .. }) if max == MAX_PROBES
+        ));
+        assert!(matches!(
+            parse_targets("0.0.0.0/0"),
+            Err(TargetsError::TooLarge { max, .. }) if max == MAX_PROBES
+        ));
+    }
+
+    #[test]
+    fn resolves_loopback_interface_address() {
+        assert_eq!(interface_ipv4("lo").unwrap(), Ipv4Addr::LOCALHOST);
+    }
+
+    #[test]
+    fn rejects_unknown_interface() {
+        let name = "singsing-rs-interface-does-not-exist";
+
+        assert!(matches!(
+            interface_ipv4(name),
+            Err(InterfaceError::NotFound { name: n }) if n == name
+        ));
     }
 
     #[test]
@@ -1341,13 +1384,46 @@ mod tests {
             MAX_PROBES
         );
         assert_eq!(validate_probe_count(1, 1, 15, MAX_TIMEOUT).unwrap(), 1);
-        validate_probe_count(257, 65_535, 15, timeout).unwrap_err();
-        validate_probe_count(MAX_PROBES + 1, 1, 15, timeout).unwrap_err();
-        validate_probe_count(usize::MAX, 2, 15, timeout).unwrap_err();
-        validate_probe_count(0, 1, 15, timeout).unwrap_err();
-        validate_probe_count(1, 0, 15, timeout).unwrap_err();
-        validate_probe_count(1, 1, 0, timeout).unwrap_err();
-        validate_probe_count(1, 1, 15, MAX_TIMEOUT + Duration::from_secs(1)).unwrap_err();
+        assert!(matches!(
+            validate_probe_count(257, 65_535, 15, timeout),
+            Err(ScanError::TooManyProbes { probe_count: 16_842_495, max }) if max == MAX_PROBES
+        ));
+        assert!(matches!(
+            validate_probe_count(MAX_PROBES + 1, 1, 15, timeout),
+            Err(ScanError::TooManyProbes { max, .. }) if max == MAX_PROBES
+        ));
+        assert!(matches!(
+            validate_probe_count(usize::MAX, 2, 15, timeout),
+            Err(ScanError::ScanSizeOverflow)
+        ));
+        assert!(matches!(
+            validate_probe_count(0, 1, 15, timeout),
+            Err(ScanError::EmptyScan)
+        ));
+        assert!(matches!(
+            validate_probe_count(1, 0, 15, timeout),
+            Err(ScanError::EmptyScan)
+        ));
+        assert!(matches!(
+            validate_probe_count(1, 1, 0, timeout),
+            Err(ScanError::ZeroBandwidth)
+        ));
+        assert!(matches!(
+            validate_probe_count(1, 1, 15, MAX_TIMEOUT + Duration::from_secs(1)),
+            Err(ScanError::TimeoutTooLarge { max, .. }) if max == MAX_TIMEOUT
+        ));
+    }
+
+    #[test]
+    fn timeout_too_large_reports_both_durations() {
+        let timeout = MAX_TIMEOUT + Duration::from_secs(1);
+
+        let error = validate_probe_count(1, 1, 15, timeout).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            format!("timeout of {timeout:?} exceeds the maximum of {MAX_TIMEOUT:?}")
+        );
     }
 
     #[test]
@@ -1393,7 +1469,12 @@ zero            0/tcp
 
     #[test]
     fn rejects_services_file_without_tcp_ports() {
-        services_from("domain 53/udp\n# comment\nmalformed\n").unwrap_err();
+        let path = services_path();
+        fs::write(&path, "domain 53/udp\n# comment\nmalformed\n").unwrap();
+        let error = ports_from_services(&path).unwrap_err();
+        fs::remove_file(&path).unwrap();
+
+        assert!(matches!(error, PortsError::NoTcpServices { path: p } if p == path));
     }
 
     #[test]
@@ -1401,6 +1482,10 @@ zero            0/tcp
         let path = services_path();
         let error = ports_from_services(&path).unwrap_err();
 
+        assert!(matches!(
+            &error,
+            PortsError::ServicesFileRead { path: p, .. } if p == &path
+        ));
         assert!(format!("{error:#}").contains(&path.display().to_string()));
     }
 
