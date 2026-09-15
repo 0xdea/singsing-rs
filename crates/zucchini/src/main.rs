@@ -163,7 +163,7 @@ fn to_boxed_error(error: &anyhow::Error) -> Box<dyn Error + Send + Sync> {
     format!("{error:#}").into()
 }
 
-/// Prints the program banner to stderr, flushed immediately.
+/// Prints the program banner to stderr and flush the output stream.
 fn write_banner() -> anyhow::Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
@@ -180,7 +180,7 @@ fn write_banner_to(output: &mut impl Write) -> anyhow::Result<()> {
     .context("failed to write program banner")
 }
 
-/// Writes the scan summary to stderr, flushed before the scan starts.
+/// Writes the scan summary to stderr and flush the output stream before the scan starts.
 fn write_scan_summary(probes: usize, interface: &str, source: Ipv4Addr) -> anyhow::Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
@@ -240,7 +240,7 @@ fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> anyhow::
     Ok(())
 }
 
-/// Writes a verbose scan result to stdout, flushed immediately for live feedback.
+/// Writes a verbose scan result to stdout and flush the output stream for live feedback.
 fn write_verbose_result(result: ScanResult) -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
@@ -264,7 +264,7 @@ fn write_result_to(
         .context("failed to write scan result")
 }
 
-/// Writes the scan progress to stderr, flushed immediately.
+/// Writes the scan progress to stderr and flush the output stream for live feedback.
 fn write_progress(progress: ScanProgress) -> anyhow::Result<()> {
     let line = format_progress(progress, Local::now());
     let stderr = io::stderr();
