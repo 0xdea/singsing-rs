@@ -44,41 +44,6 @@ const THIRTY_MINUTES: Duration = Duration::from_mins(30);
 /// One hour duration.
 const ONE_HOUR: Duration = Duration::from_hours(1);
 
-/// An error that stopped transmission after part of a scan was sent.
-#[derive(Debug, thiserror::Error)]
-#[error("scan stopped after sending {probes_sent} of {total_probes} probes")]
-pub struct IncompleteScanError {
-    /// The error that caused the incomplete scan.
-    #[source]
-    source: SendError,
-    /// The results received from probes sent before transmission stopped.
-    partial_results: Vec<ScanResult>,
-    /// The number of probes successfully sent before the error.
-    probes_sent: usize,
-    /// The total number of probes requested by the scan.
-    total_probes: usize,
-}
-
-impl IncompleteScanError {
-    /// Returns results received from probes sent before transmission stopped.
-    #[must_use]
-    pub fn partial_results(&self) -> &[ScanResult] {
-        &self.partial_results
-    }
-
-    /// Returns the number of probes successfully sent before the error.
-    #[must_use]
-    pub const fn probes_sent(&self) -> usize {
-        self.probes_sent
-    }
-
-    /// Returns the total number of probes requested by the scan.
-    #[must_use]
-    pub const fn total_probes(&self) -> usize {
-        self.total_probes
-    }
-}
-
 /// An error resolving a network interface's IPv4 address.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -168,29 +133,6 @@ pub enum PortsError {
     },
 }
 
-/// An error that stopped probe transmission mid-scan.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum SendError {
-    /// The fixed-size SYN packet buffer could not be parsed back into an IPv4 packet.
-    #[error("failed to construct IPv4 packet")]
-    PacketConstruction,
-    /// Sending a probe failed.
-    #[error("failed to send SYN to {host}:{port}")]
-    Io {
-        /// The probe's destination host.
-        host: Ipv4Addr,
-        /// The probe's destination port.
-        port: u16,
-        /// The underlying I/O error.
-        #[source]
-        source: io::Error,
-    },
-    /// The `on_progress` callback returned an error.
-    #[error("callback failed")]
-    Callback(#[source] Box<dyn Error + Send + Sync>),
-}
-
 /// An error running a scan.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -249,6 +191,64 @@ pub enum ScanError {
     /// The `on_result` callback returned an error.
     #[error("callback failed")]
     Callback(#[source] Box<dyn Error + Send + Sync>),
+}
+
+/// An error that stopped probe transmission mid-scan.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum SendError {
+    /// The fixed-size SYN packet buffer could not be parsed back into an IPv4 packet.
+    #[error("failed to construct IPv4 packet")]
+    PacketConstruction,
+    /// Sending a probe failed.
+    #[error("failed to send SYN to {host}:{port}")]
+    Io {
+        /// The probe's destination host.
+        host: Ipv4Addr,
+        /// The probe's destination port.
+        port: u16,
+        /// The underlying I/O error.
+        #[source]
+        source: io::Error,
+    },
+    /// The `on_progress` callback returned an error.
+    #[error("callback failed")]
+    Callback(#[source] Box<dyn Error + Send + Sync>),
+}
+
+/// An error that stopped transmission after part of a scan was sent.
+#[derive(Debug, thiserror::Error)]
+#[error("scan stopped after sending {probes_sent} of {total_probes} probes")]
+pub struct IncompleteScanError {
+    /// The error that caused the incomplete scan.
+    #[source]
+    source: SendError,
+    /// The results received from probes sent before transmission stopped.
+    partial_results: Vec<ScanResult>,
+    /// The number of probes successfully sent before the error.
+    probes_sent: usize,
+    /// The total number of probes requested by the scan.
+    total_probes: usize,
+}
+
+impl IncompleteScanError {
+    /// Returns results received from probes sent before transmission stopped.
+    #[must_use]
+    pub fn partial_results(&self) -> &[ScanResult] {
+        &self.partial_results
+    }
+
+    /// Returns the number of probes successfully sent before the error.
+    #[must_use]
+    pub const fn probes_sent(&self) -> usize {
+        self.probes_sent
+    }
+
+    /// Returns the total number of probes requested by the scan.
+    #[must_use]
+    pub const fn total_probes(&self) -> usize {
+        self.total_probes
+    }
 }
 
 /// Configuration for one SYN scan.
