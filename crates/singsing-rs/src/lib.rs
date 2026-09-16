@@ -31,6 +31,16 @@ use pnet::transport::{
 
 /// The packet length used for scanning.
 const PACKET_LEN: usize = 40;
+/// The receive buffer's length, reused for every packet read on the raw socket.
+///
+/// The socket is a `Layer3` raw socket, so the kernel delivers every matching IPv4/TCP packet on
+/// the host to it, not just replies to this scan's own probes (unrelated packets are filtered out
+/// in userspace by `classify_response`). The buffer must therefore be large enough for the
+/// largest packet any such traffic could deliver, not just this scan's own `PACKET_LEN`-sized
+/// probes and replies: a too-small buffer silently truncates an oversized read rather than
+/// erroring. `1 MiB` comfortably exceeds the largest possible IPv4 packet (65,535 bytes).
+const RECEIVE_BUFFER_LEN: usize = 1 << 20;
+
 /// The maximum number of probes to send during a scan.
 const MAX_PROBES: usize = 16_777_214;
 /// The maximum time to listen for late replies after the final probe.
@@ -574,10 +584,12 @@ pub fn scan_with_callbacks(
     let nonce = nonce();
     let expected = Arc::new(expected_responses(config, nonce, probe_count)?);
 
+    // Create the transport channel (`Layer3` raw socket).
     let protocol = TransportChannelType::Layer3(IpNextHeaderProtocols::Tcp);
     let (mut sender, mut receiver) =
-        transport_channel(1 << 20, protocol).map_err(ScanError::SocketCreation)?;
+        transport_channel(RECEIVE_BUFFER_LEN, protocol).map_err(ScanError::SocketCreation)?;
 
+    // Spawn the receiver thread.
     let done = Arc::new(AtomicBool::new(false));
     let receiver_done = Arc::clone(&done);
     let receiver_expected = Arc::clone(&expected);
@@ -596,6 +608,8 @@ pub fn scan_with_callbacks(
         receive(&mut receiver, &receive_config, &mut on_result)
     });
 
+    // Compute the send interval based on the requested bandwidth.
+    //
     // Unlike `timeout`, `bandwidth_kib` has no upper sanity limit, only the overflow guard below
     // (~u64::MAX / 1024 KiB/s). An extreme but non-overflowing value drives `packets_per_second`
     // high enough that this division floors to zero, making `interval` `Duration::ZERO`; the send
@@ -607,6 +621,12 @@ pub fn scan_with_callbacks(
         .ok_or(ScanError::BandwidthOverflow)?;
     let packets_per_second = (bytes_per_second / 40).max(1);
     let interval = Duration::from_nanos(1_000_000_000_u64 / packets_per_second);
+
+    // Send loop.
+    //
+    // Runs as an inline closure so a mid-loop error can be captured without immediately returning
+    // from the outer function. This way, a send failure doesn't abort the receiver early, but just
+    // gets folded into the final error once both sides are done, so partial results are not lost.
     let mut next_send = Instant::now();
     let started = next_send;
     let mut next_progress = ONE_MINUTE;
@@ -617,6 +637,7 @@ pub fn scan_with_callbacks(
             reason = "randomized `HashMap` iteration order is deliberate; see README's Transmission order section"
         )]
         for (&(host, port), &sequence) in expected.iter() {
+            // Build one TCP SYN packet and send it.
             let packet = syn_packet(config.source, host, source_port, port, sequence);
             let ipv4_packet =
                 MutableIpv4Packet::owned(packet).ok_or(SendError::PacketConstruction)?;
@@ -628,10 +649,14 @@ pub fn scan_with_callbacks(
                     source: io_error,
                 })?;
             probes_sent += 1;
+
+            // Throttle the send loop to the requested bandwidth.
             next_send += interval;
             if let Some(delay) = next_send.checked_duration_since(Instant::now()) {
                 thread::sleep(delay);
             }
+
+            // Track progress and invoke the callback if necessary.
             let now = Instant::now();
             let elapsed = now.duration_since(started);
             if elapsed >= next_progress {
@@ -646,12 +671,25 @@ pub fn scan_with_callbacks(
         }
         Ok(())
     })();
+
+    // Whatever happens, unconditionally mark the send loop as done.
+    //
+    // Everything this thread wrote to memory before this store is guaranteed to be visible to the
+    // receive thread that later does an `Acquire` load on `done`.
     done.store(true, Ordering::Release);
 
+    // Join the receive thread and collect the results.
+    //
+    // The first `?` (via `map_err`) converts the panic payload to a `ScanError::ReceiverPanicked`.
+    // The second `?` propagates any other error from the receive thread.
     let mut results = receive_thread.join().map_err(|payload| {
         ScanError::ReceiverPanicked(describe_panic_payload(&*payload).to_owned())
     })??;
+
+    // Sort the results by host and port.
     results.sort_unstable_by_key(|result| (u32::from(result.host), result.port));
+
+    // If the send loop failed mid-scan, return an `IncompleteScanError` with the collected results.
     if let Err(e) = send_result {
         return Err(ScanError::Incomplete(IncompleteScanError {
             source: e,
@@ -660,6 +698,7 @@ pub fn scan_with_callbacks(
             total_probes: probe_count,
         }));
     }
+
     Ok(results)
 }
 
