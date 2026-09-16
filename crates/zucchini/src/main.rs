@@ -34,7 +34,7 @@ const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 ///
 /// Wrapped in a newtype so clap treats a single `--host` occurrence as one parsed value rather than inferring
 /// multi-occurrence behavior from a bare `Vec<Ipv4Addr>` field type.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct Targets(Vec<Ipv4Addr>);
 
 impl FromStr for Targets {
@@ -48,7 +48,7 @@ impl FromStr for Targets {
 /// TCP ports parsed from a `--ports` argument.
 ///
 /// Wrapped in a newtype for the same reason as [`Targets`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct Ports(Vec<u16>);
 
 impl FromStr for Ports {
