@@ -293,7 +293,7 @@ impl ScanConfig {
     }
 }
 
-/// Sending progress reported during a scan.
+/// Probe sending progress reported during a scan.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct ScanProgress {
@@ -403,7 +403,7 @@ pub fn interface_ipv4(name: &str) -> Result<Ipv4Addr, InterfaceError> {
 /// Returns an error for malformed IPv4/CIDR input or a network containing more
 /// usable addresses than a `/8`.
 pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>, TargetsError> {
-    let network: Ipv4Net = if input.contains('/') {
+    let network = if input.contains('/') {
         input.parse().map_err(TargetsError::InvalidNetwork)?
     } else {
         format!("{input}/32")
@@ -756,7 +756,7 @@ fn next_progress_deadline(previous: Duration) -> Duration {
 
 /// Parses a single TCP port, rejecting port zero.
 fn parse_port(input: &str) -> Result<u16, PortsError> {
-    let port: u16 = input.parse().map_err(|source| PortsError::InvalidPort {
+    let port = input.parse().map_err(|source| PortsError::InvalidPort {
         input: input.to_owned(),
         source,
     })?;
