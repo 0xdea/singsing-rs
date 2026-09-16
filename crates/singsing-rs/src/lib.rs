@@ -44,6 +44,20 @@ const THIRTY_MINUTES: Duration = Duration::from_mins(30);
 /// One hour duration.
 const ONE_HOUR: Duration = Duration::from_hours(1);
 
+/// A TCP port number.
+pub type Port = u16;
+/// A TCP sequence or acknowledgement number.
+type SeqNum = u32;
+/// Maps each target host/port pair to its expected TCP sequence number.
+type ExpectedResponses = HashMap<(Ipv4Addr, Port), SeqNum>;
+
+/// The error type returned by `scan`/`scan_with_callback`/`scan_with_callbacks`'s `on_result` and
+/// `on_progress` callbacks.
+///
+/// Callbacks are caller-defined and can fail for reasons this crate can't enumerate in advance, so
+/// their error is boxed rather than typed.
+pub type CallbackError = Box<dyn Error + Send + Sync>;
+
 /// An error resolving a network interface's IPv4 address.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -174,7 +188,7 @@ pub enum ScanError {
         /// The duplicated target.
         host: Ipv4Addr,
         /// The duplicated port.
-        port: u16,
+        port: Port,
     },
     /// Creating the raw transport socket failed.
     #[error("failed to create raw socket (run as root or grant CAP_NET_RAW)")]
@@ -190,7 +204,7 @@ pub enum ScanError {
     Incomplete(IncompleteScanError),
     /// The `on_result` callback returned an error.
     #[error("callback failed")]
-    Callback(#[source] Box<dyn Error + Send + Sync>),
+    Callback(#[source] CallbackError),
 }
 
 /// An error that stopped probe transmission mid-scan.
@@ -206,14 +220,14 @@ pub enum SendError {
         /// The probe's destination host.
         host: Ipv4Addr,
         /// The probe's destination port.
-        port: u16,
+        port: Port,
         /// The underlying I/O error.
         #[source]
         source: io::Error,
     },
     /// The `on_progress` callback returned an error.
     #[error("callback failed")]
-    Callback(#[source] Box<dyn Error + Send + Sync>),
+    Callback(#[source] CallbackError),
 }
 
 /// An error that stopped transmission after part of a scan was sent.
@@ -262,7 +276,7 @@ pub struct ScanConfig {
     /// TCP ports to scan.
     ///
     /// Ports must be unique.
-    pub ports: Vec<u16>,
+    pub ports: Vec<Port>,
     /// Source IPv4 address assigned to the selected interface.
     pub source: Ipv4Addr,
     /// Approximate maximum packet bandwidth in KiB/s.
@@ -281,7 +295,7 @@ pub struct ScanConfig {
 impl ScanConfig {
     /// Creates a configuration with 15 KiB/s bandwidth and a 30-second timeout.
     #[must_use]
-    pub const fn new(targets: Vec<Ipv4Addr>, ports: Vec<u16>, source: Ipv4Addr) -> Self {
+    pub const fn new(targets: Vec<Ipv4Addr>, ports: Vec<Port>, source: Ipv4Addr) -> Self {
         Self {
             targets,
             ports,
@@ -355,7 +369,7 @@ pub struct ScanResult {
     /// The responding host.
     pub host: Ipv4Addr,
     /// The responding TCP port.
-    pub port: u16,
+    pub port: Port,
     /// The inferred port state.
     pub state: PortState,
 }
@@ -363,7 +377,7 @@ pub struct ScanResult {
 impl ScanResult {
     /// Creates a scan result for the given host, port, and inferred state.
     #[must_use]
-    pub const fn new(host: Ipv4Addr, port: u16, state: PortState) -> Self {
+    pub const fn new(host: Ipv4Addr, port: Port, state: PortState) -> Self {
         Self { host, port, state }
     }
 }
@@ -429,7 +443,7 @@ pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>, TargetsError> {
 /// # Errors
 ///
 /// Returns an error for empty items, reversed ranges, port zero, or values larger than 65535.
-pub fn parse_ports(input: &str) -> Result<Vec<u16>, PortsError> {
+pub fn parse_ports(input: &str) -> Result<Vec<Port>, PortsError> {
     let mut ports = BTreeSet::new();
 
     for item in input.split(',') {
@@ -474,7 +488,7 @@ pub fn parse_ports(input: &str) -> Result<Vec<u16>, PortsError> {
 /// # Errors
 ///
 /// Returns an error when the file cannot be read or contains no TCP services.
-pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<u16>, PortsError> {
+pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<Port>, PortsError> {
     let contents =
         fs::read_to_string(path.as_ref()).map_err(|source| PortsError::ServicesFileRead {
             path: path.as_ref().to_path_buf(),
@@ -534,15 +548,16 @@ pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>, ScanError> {
 /// Returns the same errors as [`scan`], along with errors returned by `on_result`.
 pub fn scan_with_callback(
     config: &ScanConfig,
-    on_result: impl FnMut(ScanResult) -> Result<(), Box<dyn Error + Send + Sync>> + Send + 'static,
+    on_result: impl FnMut(ScanResult) -> Result<(), CallbackError> + Send + 'static,
 ) -> Result<Vec<ScanResult>, ScanError> {
     scan_with_callbacks(config, on_result, |_| Ok(()))
 }
 
 /// Executes a SYN scan with callbacks for results and sending progress.
 ///
-/// `on_result` runs as each response arrives. While probes are being sent, `on_progress` runs
-/// every minute for the first ten minutes, every ten minutes through the first hour, and every
+/// `on_result` runs as each response arrives. It needs to be `Send + 'static` because it gets
+/// moved into the spawned receiver thread. While probes are being sent, `on_progress` runs every
+/// minute for the first ten minutes, every ten minutes through the first hour, and every
 /// thirty minutes thereafter.
 ///
 /// # Errors
@@ -550,15 +565,14 @@ pub fn scan_with_callback(
 /// Returns the same errors as [`scan`], along with errors returned by either callback.
 pub fn scan_with_callbacks(
     config: &ScanConfig,
-    mut on_result: impl FnMut(ScanResult) -> Result<(), Box<dyn Error + Send + Sync>> + Send + 'static,
-    mut on_progress: impl FnMut(ScanProgress) -> Result<(), Box<dyn Error + Send + Sync>>,
+    mut on_result: impl FnMut(ScanResult) -> Result<(), CallbackError> + Send + 'static,
+    mut on_progress: impl FnMut(ScanProgress) -> Result<(), CallbackError>,
 ) -> Result<Vec<ScanResult>, ScanError> {
+    // Validate the scan configuration and build the expected responses table.
     let probe_count = validate_scan(config)?;
-
     let source_port = source_port();
     let nonce = nonce();
-    let expected = expected_responses(config, nonce, probe_count)?;
-    let expected = Arc::new(expected);
+    let expected = Arc::new(expected_responses(config, nonce, probe_count)?);
 
     let protocol = TransportChannelType::Layer3(IpNextHeaderProtocols::Tcp);
     let (mut sender, mut receiver) =
@@ -692,7 +706,7 @@ fn expected_responses(
     config: &ScanConfig,
     nonce: u32,
     probe_count: usize,
-) -> Result<HashMap<(Ipv4Addr, u16), u32>, ScanError> {
+) -> Result<ExpectedResponses, ScanError> {
     let mut expected = HashMap::with_capacity(probe_count);
     for &host in &config.targets {
         for &port in &config.ports {
@@ -765,7 +779,7 @@ fn next_progress_deadline(previous: Duration) -> Duration {
 }
 
 /// Parses a single TCP port, rejecting port zero.
-fn parse_port(input: &str) -> Result<u16, PortsError> {
+fn parse_port(input: &str) -> Result<Port, PortsError> {
     let port = input.parse().map_err(|source| PortsError::InvalidPort {
         input: input.to_owned(),
         source,
@@ -781,7 +795,7 @@ fn parse_port(input: &str) -> Result<u16, PortsError> {
     clippy::as_conversions,
     reason = "`nonce() % 16384` is always in `0..16384`, so it always fits in a `u16`"
 )]
-fn source_port() -> u16 {
+fn source_port() -> Port {
     49152 + (nonce() % 16384) as u16
 }
 
@@ -794,7 +808,7 @@ fn nonce() -> u32 {
 }
 
 /// Derives the deterministic expected TCP sequence number for a host/port pair, given the nonce.
-fn sequence(host: Ipv4Addr, port: u16, nonce: u32) -> u32 {
+fn sequence(host: Ipv4Addr, port: Port, nonce: u32) -> SeqNum {
     u32::from(host)
         .rotate_left(13)
         .wrapping_add(u32::from(port).rotate_left(3))
@@ -805,9 +819,9 @@ fn sequence(host: Ipv4Addr, port: u16, nonce: u32) -> u32 {
 fn syn_packet(
     source: Ipv4Addr,
     destination: Ipv4Addr,
-    source_port: u16,
-    destination_port: u16,
-    sequence: u32,
+    source_port: Port,
+    destination_port: Port,
+    sequence: SeqNum,
 ) -> Vec<u8> {
     let mut bytes = vec![0_u8; PACKET_LEN];
 
@@ -848,11 +862,11 @@ fn syn_packet(
 /// Configuration for receiving packets.
 struct ReceiveConfig<'a> {
     /// Map of expected (source, port) pairs to sequence numbers.
-    expected: &'a HashMap<(Ipv4Addr, u16), u32>,
+    expected: &'a ExpectedResponses,
     /// Source IP address to filter packets by.
     source: Ipv4Addr,
     /// Source port to filter packets by.
-    source_port: u16,
+    source_port: Port,
     /// Whether to show closed connections.
     show_closed: bool,
     /// Atomic flag indicating when to stop receiving.
@@ -866,7 +880,7 @@ struct ReceiveConfig<'a> {
 fn receive(
     receiver: &mut TransportReceiver,
     config: &ReceiveConfig<'_>,
-    on_result: &mut impl FnMut(ScanResult) -> Result<(), Box<dyn Error + Send + Sync>>,
+    on_result: &mut impl FnMut(ScanResult) -> Result<(), CallbackError>,
 ) -> Result<Vec<ScanResult>, ScanError> {
     let mut iterator = ipv4_packet_iter(receiver);
     let mut results = Vec::new();
@@ -913,11 +927,11 @@ fn receive(
 /// number matches the expected sequence.
 fn classify_response(
     ipv4: &Ipv4Packet<'_>,
-    expected: &HashMap<(Ipv4Addr, u16), u32>,
+    expected: &ExpectedResponses,
     source: Ipv4Addr,
-    source_port: u16,
+    source_port: Port,
     show_closed: bool,
-    seen: &mut HashSet<(Ipv4Addr, u16)>,
+    seen: &mut HashSet<(Ipv4Addr, Port)>,
 ) -> Option<ScanResult> {
     if ipv4.get_destination() != source {
         return None;
@@ -960,9 +974,9 @@ mod tests {
     fn response_packet(
         remote: Ipv4Addr,
         local: Ipv4Addr,
-        remote_port: u16,
-        local_port: u16,
-        acknowledgement: u32,
+        remote_port: Port,
+        local_port: Port,
+        acknowledgement: SeqNum,
         flags: u8,
     ) -> Vec<u8> {
         let mut bytes = vec![0_u8; PACKET_LEN];
@@ -985,11 +999,11 @@ mod tests {
 
     fn classify_packet(
         bytes: &[u8],
-        expected: &HashMap<(Ipv4Addr, u16), u32>,
+        expected: &ExpectedResponses,
         source: Ipv4Addr,
-        source_port: u16,
+        source_port: Port,
         show_closed: bool,
-        seen: &mut HashSet<(Ipv4Addr, u16)>,
+        seen: &mut HashSet<(Ipv4Addr, Port)>,
     ) -> Option<ScanResult> {
         let ipv4 = Ipv4Packet::new(bytes)?;
         classify_response(&ipv4, expected, source, source_port, show_closed, seen)

@@ -5,7 +5,6 @@
     html_logo_url = "https://raw.githubusercontent.com/0xdea/singsing-rs/master/.img/logo_zucchini.png"
 )]
 
-use std::error::Error;
 use std::fmt;
 use std::io::{self, Write};
 use std::net::Ipv4Addr;
@@ -17,8 +16,9 @@ use anyhow::Context as _;
 use chrono::{DateTime, Local, TimeZone};
 use clap::Parser;
 use singsing_rs::{
-    PortState, PortsError, ScanConfig, ScanError, ScanProgress, ScanResult, TargetsError,
-    interface_ipv4, parse_ports, parse_targets, ports_from_services, scan_with_callbacks,
+    CallbackError, Port, PortState, PortsError, ScanConfig, ScanError, ScanProgress, ScanResult,
+    TargetsError, interface_ipv4, parse_ports, parse_targets, ports_from_services,
+    scan_with_callbacks,
 };
 
 /// Package name.
@@ -49,7 +49,7 @@ impl FromStr for Targets {
 ///
 /// Wrapped in a newtype for the same reason as [`Targets`].
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct Ports(Vec<u16>);
+struct Ports(Vec<Port>);
 
 impl FromStr for Ports {
     type Err = PortsError;
@@ -160,7 +160,7 @@ fn run() -> anyhow::Result<()> {
 
 /// Adapts an `anyhow::Error` from a `write_*` helper into the boxed error type the scanning
 /// library's callbacks expect.
-fn to_boxed_error(error: &anyhow::Error) -> Box<dyn Error + Send + Sync> {
+fn to_boxed_error(error: &anyhow::Error) -> CallbackError {
     format!("{error:#}").into()
 }
 

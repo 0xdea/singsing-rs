@@ -9,13 +9,12 @@
 #![expect(clippy::unwrap_used, reason = "tests can use `unwrap`")]
 #![expect(clippy::expect_used, reason = "tests can use `expect`")]
 
-use std::error::Error;
 use std::net::{Ipv4Addr, TcpListener};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use singsing_rs::{PortState, ScanConfig, ScanResult, scan, scan_with_callback};
+use singsing_rs::{CallbackError, PortState, ScanConfig, ScanResult, scan, scan_with_callback};
 
 const TEST_TIMEOUT: Duration = Duration::from_millis(250);
 
@@ -103,9 +102,7 @@ fn delivers_callback_and_final_result() {
     let (sender, receiver) = mpsc::channel();
 
     let results = scan_with_callback(&scan_config(vec![port], false), move |result| {
-        sender
-            .send(result)
-            .map_err(Box::<dyn Error + Send + Sync>::from)
+        sender.send(result).map_err(CallbackError::from)
     })
     .unwrap();
     let callbacks: Vec<_> = receiver.into_iter().collect();
