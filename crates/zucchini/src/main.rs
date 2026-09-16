@@ -32,8 +32,8 @@ const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 
 /// IPv4 scan targets parsed from a `--host` argument.
 ///
-/// Wrapped in a newtype so clap treats a single `--host` occurrence as one parsed value rather than inferring
-/// multi-occurrence behavior from a bare `Vec<Ipv4Addr>` field type.
+/// Wrapped in a newtype so clap treats a single `--host` occurrence as one parsed value rather
+/// than inferring multi-occurrence behavior from a bare `Vec<Ipv4Addr>` field type.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Targets(Vec<Ipv4Addr>);
 
@@ -158,7 +158,8 @@ fn run() -> anyhow::Result<()> {
     write_done_summary(probes, started.elapsed().as_secs_f64())
 }
 
-/// Adapts an `anyhow::Error` from a `write_*` helper into the boxed error type the scanning library's callbacks expect.
+/// Adapts an `anyhow::Error` from a `write_*` helper into the boxed error type the scanning
+/// library's callbacks expect.
 fn to_boxed_error(error: &anyhow::Error) -> Box<dyn Error + Send + Sync> {
     format!("{error:#}").into()
 }
