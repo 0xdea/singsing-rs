@@ -167,6 +167,7 @@ fn to_boxed_error(error: &anyhow::Error) -> Box<dyn Error + Send + Sync> {
 fn write_banner() -> anyhow::Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
+
     write_banner_to(&mut output)?;
     output.flush().context("failed to flush output stream")
 }
@@ -184,6 +185,7 @@ fn write_banner_to(output: &mut impl Write) -> anyhow::Result<()> {
 fn write_scan_summary(probes: usize, interface: &str, source: Ipv4Addr) -> anyhow::Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
+
     write_scan_summary_to(&mut output, probes, interface, source)?;
     output.flush().context("failed to flush output stream")
 }
@@ -206,6 +208,7 @@ fn write_scan_summary_to(
 fn write_done_summary(probes: usize, elapsed: f64) -> anyhow::Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
+
     write_done_summary_to(&mut output, probes, elapsed)
 }
 
@@ -226,6 +229,7 @@ fn write_done_summary_to(
 fn write_results(results: &[ScanResult]) -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
+
     write_results_to(&mut output, results)
 }
 
@@ -234,9 +238,11 @@ fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> anyhow::
     if !results.is_empty() {
         writeln!(output, "\nScan results:").context("failed to write results heading")?;
     }
+
     for &result in results {
         write_result_to(output, result, false)?;
     }
+
     Ok(())
 }
 
@@ -244,6 +250,7 @@ fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> anyhow::
 fn write_verbose_result(result: ScanResult) -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
+
     write_result_to(&mut output, result, true)?;
     output.flush().context("failed to flush output stream")
 }
@@ -260,6 +267,7 @@ fn write_result_to(
         _ => "unknown",
     };
     let prefix = if verbose { "[verbose] " } else { "" };
+
     writeln!(output, "{prefix}{state} {}:{}", result.host, result.port)
         .context("failed to write scan result")
 }
@@ -269,6 +277,7 @@ fn write_progress(progress: ScanProgress) -> anyhow::Result<()> {
     let line = format_progress(progress, Local::now());
     let stderr = io::stderr();
     let mut output = stderr.lock();
+
     writeln!(output, "{line}").context("failed to write scan progress")?;
     output.flush().context("failed to flush output stream")
 }
@@ -287,6 +296,7 @@ where
             || "unknown".to_owned(),
             |eta| eta.format("%a %Y-%m-%d %H:%M:%S %Z").to_string(),
         );
+
     format!("[stats] {}% done | ETA {eta}", progress.percent())
 }
 

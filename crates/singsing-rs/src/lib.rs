@@ -330,6 +330,7 @@ impl ScanProgress {
     pub fn estimated_remaining(self) -> Option<Duration> {
         let sent = u32::try_from(self.probes_sent).ok()?;
         let remaining = u32::try_from(self.total_probes.saturating_sub(self.probes_sent)).ok()?;
+
         if sent == 0 {
             return None;
         }
@@ -410,16 +411,18 @@ pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>, TargetsError> {
             .parse()
             .map_err(TargetsError::InvalidAddress)?
     };
+
     if usable_target_count(network).is_none_or(|count| count > MAX_PROBES) {
         return Err(TargetsError::TooLarge {
             network,
             max: MAX_PROBES,
         });
     }
+
     Ok(network.hosts().collect())
 }
 
-/// Parses comma-separated ports and inclusive ranges such as `22,80,8000-8010`.
+/// Parses comma-separated ports and inclusive ranges such as `21-23,80,443`.
 ///
 /// Duplicate ports are removed and the result is returned in ascending order.
 ///
@@ -436,24 +439,32 @@ pub fn parse_ports(input: &str) -> Result<Vec<u16>, PortsError> {
                 input: input.to_owned(),
             });
         }
+
         let (start, end) = if let Some((start, end)) = item.split_once('-') {
             if end.contains('-') {
                 return Err(PortsError::InvalidRange {
                     item: item.to_owned(),
                 });
             }
+            // Port range.
             (parse_port(start)?, parse_port(end)?)
         } else {
+            // Single port.
             let port = parse_port(item)?;
             (port, port)
         };
+
+        // After both halves are known to be valid ports, check for a reversed range.
         if start > end {
             return Err(PortsError::ReversedRange {
                 item: item.to_owned(),
             });
         }
+
+        // Insert the whole range at once.
         ports.extend(start..=end);
     }
+
     Ok(ports.into_iter().collect())
 }
 
@@ -471,12 +482,16 @@ pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<u16>, PortsErro
             source,
         })?;
     let mut ports = BTreeSet::new();
+
     for line in contents.lines() {
+        // Break lines into fields, skipping comments and empty lines.
         let mut fields = line
             .split('#')
             .next()
             .unwrap_or_default()
             .split_whitespace();
+
+        // Skip service names and extract valid TCP ports to insert into the set.
         let _service = fields.next();
         if let Some(port_protocol) = fields.next()
             && let Some((port, "tcp")) = port_protocol.split_once('/')
@@ -485,11 +500,13 @@ pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<u16>, PortsErro
             ports.insert(port);
         }
     }
+
     if ports.is_empty() {
         return Err(PortsError::NoTcpServices {
             path: path.as_ref().to_path_buf(),
         });
     }
+
     Ok(ports.into_iter().collect())
 }
 
