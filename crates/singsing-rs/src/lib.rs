@@ -569,6 +569,12 @@ pub fn scan_with_callbacks(
         receive(&mut receiver, &receive_config, &mut on_result)
     });
 
+    // Unlike `timeout`, `bandwidth_kib` has no upper sanity limit, only the
+    // overflow guard below (~u64::MAX / 1024 KiB/s). An extreme but
+    // non-overflowing value drives `packets_per_second` high enough that this
+    // division floors to zero, making `interval` `Duration::ZERO`; the send
+    // loop then never sleeps, so the practical effect is unthrottled sending
+    // rather than a panic or incorrect behavior, so no cap is needed.
     let bytes_per_second = config
         .bandwidth_kib
         .checked_mul(1024)
@@ -643,7 +649,7 @@ fn describe_panic_payload(payload: &(dyn Any + Send)) -> &str {
         .unwrap_or("unknown panic payload")
 }
 
-/// TODO.
+/// Validates a scan configuration and returns its total probe count.
 fn validate_scan(config: &ScanConfig) -> Result<usize, ScanError> {
     validate_probe_count(
         config.targets.len(),
@@ -653,7 +659,11 @@ fn validate_scan(config: &ScanConfig) -> Result<usize, ScanError> {
     )
 }
 
-/// TODO.
+/// Returns the number of usable addresses in an IPv4 network.
+///
+/// Both addresses of a `/31` count as usable and a `/32` counts as one;
+/// otherwise the network and broadcast addresses are excluded. Returns `None`
+/// on prefix-length arithmetic overflow.
 fn usable_target_count(network: Ipv4Net) -> Option<usize> {
     let host_bits = 32_u32.checked_sub(u32::from(network.prefix_len()))?;
     match host_bits {
@@ -663,7 +673,10 @@ fn usable_target_count(network: Ipv4Net) -> Option<usize> {
     }
 }
 
-/// TODO.
+/// Builds the expected-response table mapping each target/port pair to its
+/// deterministic sequence number.
+///
+/// Returns [`ScanError::DuplicatePair`] for a duplicate target/port pair.
 fn expected_responses(
     config: &ScanConfig,
     nonce: u32,
@@ -683,7 +696,11 @@ fn expected_responses(
     Ok(expected)
 }
 
-/// TODO.
+/// Validates scan size and configuration limits, returning the total probe
+/// count.
+///
+/// Rejects an empty target or port list, zero bandwidth, a timeout above
+/// [`MAX_TIMEOUT`], and a target×port product above [`MAX_PROBES`].
 fn validate_probe_count(
     target_count: usize,
     port_count: usize,
@@ -714,7 +731,7 @@ fn validate_probe_count(
     Ok(probe_count)
 }
 
-/// TODO.
+/// Advances a progress deadline past `elapsed`, skipping any missed intervals.
 fn advance_progress_deadline(mut deadline: Duration, elapsed: Duration) -> Duration {
     while deadline <= elapsed {
         deadline = next_progress_deadline(deadline);
@@ -722,7 +739,10 @@ fn advance_progress_deadline(mut deadline: Duration, elapsed: Duration) -> Durat
     deadline
 }
 
-/// TODO.
+/// Returns the next progress deadline after `previous`.
+///
+/// Follows a growing schedule: every minute for the first ten minutes, every
+/// ten minutes through the first hour, then every thirty minutes thereafter.
 fn next_progress_deadline(previous: Duration) -> Duration {
     let interval = if previous < TEN_MINUTES {
         ONE_MINUTE
@@ -734,7 +754,7 @@ fn next_progress_deadline(previous: Duration) -> Duration {
     previous + interval
 }
 
-/// TODO.
+/// Parses a single TCP port, rejecting port zero.
 fn parse_port(input: &str) -> Result<u16, PortsError> {
     let port: u16 = input.parse().map_err(|source| PortsError::InvalidPort {
         input: input.to_owned(),
@@ -746,7 +766,8 @@ fn parse_port(input: &str) -> Result<u16, PortsError> {
     Ok(port)
 }
 
-/// TODO.
+/// Picks a random ephemeral TCP source port in `49152..65536`, reused for
+/// every probe in the scan.
 #[expect(
     clippy::as_conversions,
     reason = "`nonce() % 16384` is always in `0..16384`, so it always fits in a `u16`"
@@ -755,7 +776,7 @@ fn source_port() -> u16 {
     49152 + (nonce() % 16384) as u16
 }
 
-/// TODO.
+/// Returns a per-scan random nonce derived from the current sub-second time.
 fn nonce() -> u32 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -763,7 +784,8 @@ fn nonce() -> u32 {
         .subsec_nanos()
 }
 
-/// TODO.
+/// Derives the deterministic expected TCP sequence number for a host/port
+/// pair, given the scan's nonce.
 fn sequence(host: Ipv4Addr, port: u16, nonce: u32) -> u32 {
     u32::from(host)
         .rotate_left(13)
@@ -771,7 +793,7 @@ fn sequence(host: Ipv4Addr, port: u16, nonce: u32) -> u32 {
         ^ nonce
 }
 
-/// TODO.
+/// Builds a raw 40-byte IPv4/TCP SYN packet for one probe.
 fn syn_packet(
     source: Ipv4Addr,
     destination: Ipv4Addr,
@@ -831,7 +853,8 @@ struct ReceiveConfig<'a> {
     timeout: Duration,
 }
 
-/// TODO.
+/// Reads and classifies raw packets until sending is done and the late-reply
+/// timeout elapses, returning accepted results in arrival order.
 fn receive(
     receiver: &mut TransportReceiver,
     config: &ReceiveConfig<'_>,
@@ -875,7 +898,11 @@ fn receive(
     Ok(results)
 }
 
-/// TODO.
+/// Correlates one received IPv4 packet against the expected-response table.
+///
+/// Returns `Some` only for a not-yet-seen reply whose destination address and
+/// port match the scan's source, whose source host/port matches an actual
+/// probe, and whose acknowledgement number matches the expected sequence.
 fn classify_response(
     ipv4: &Ipv4Packet<'_>,
     expected: &HashMap<(Ipv4Addr, u16), u32>,
