@@ -71,7 +71,7 @@ struct Arguments {
     #[arg(short = 'h', long)]
     host: Targets,
 
-    /// Ports (e.g., 21-23,80,443) [defaults to ports from /etc/services].
+    /// Ports (e.g., 21-23,80,443) [default: /etc/services].
     #[arg(short = 'p', long)]
     ports: Option<Ports>,
 
@@ -83,7 +83,7 @@ struct Arguments {
     #[arg(short = 'b', long, default_value_t = 15, value_parser = clap::value_parser!(u64).range(1..))]
     bandwidth: u64,
 
-    /// Seconds to wait after sending the final probe.
+    /// Seconds to wait for late replies.
     #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..))]
     timeout: u64,
 
