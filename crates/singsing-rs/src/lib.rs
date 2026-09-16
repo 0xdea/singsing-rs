@@ -702,28 +702,6 @@ pub fn scan_with_callbacks(
     Ok(results)
 }
 
-/// Extracts a human-readable message from a thread panic payload.
-///
-/// Falls back to a generic message when the payload isn't the common `&str` or `String` shape
-/// produced by `panic!`.
-fn describe_panic_payload(payload: &(dyn Any + Send)) -> &str {
-    payload
-        .downcast_ref::<&str>()
-        .copied()
-        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-        .unwrap_or("unknown panic payload")
-}
-
-/// Validates a scan configuration and returns its total probe count.
-fn validate_scan(config: &ScanConfig) -> Result<usize, ScanError> {
-    validate_probe_count(
-        config.targets.len(),
-        config.ports.len(),
-        config.bandwidth_kib,
-        config.timeout,
-    )
-}
-
 /// Returns the number of usable addresses in an IPv4 network.
 ///
 /// Both addresses of a `/31` count as usable and a `/32` counts as one; otherwise the network
@@ -737,27 +715,26 @@ fn usable_target_count(network: Ipv4Net) -> Option<usize> {
     }
 }
 
-/// Builds the expected-response table mapping each target/port pair to its deterministic sequence
-/// number.
-///
-/// Returns [`ScanError::DuplicatePair`] for a duplicate target/port pair.
-fn expected_responses(
-    config: &ScanConfig,
-    nonce: u32,
-    probe_count: usize,
-) -> Result<ExpectedResponses, ScanError> {
-    let mut expected = HashMap::with_capacity(probe_count);
-    for &host in &config.targets {
-        for &port in &config.ports {
-            if expected
-                .insert((host, port), sequence(host, port, nonce))
-                .is_some()
-            {
-                return Err(ScanError::DuplicatePair { host, port });
-            }
-        }
+/// Parses a single TCP port, rejecting port zero.
+fn parse_port(input: &str) -> Result<Port, PortsError> {
+    let port = input.parse().map_err(|source| PortsError::InvalidPort {
+        input: input.to_owned(),
+        source,
+    })?;
+    if port == 0 {
+        return Err(PortsError::PortZero);
     }
-    Ok(expected)
+    Ok(port)
+}
+
+/// Validates a scan configuration and returns its total probe count.
+fn validate_scan(config: &ScanConfig) -> Result<usize, ScanError> {
+    validate_probe_count(
+        config.targets.len(),
+        config.ports.len(),
+        config.bandwidth_kib,
+        config.timeout,
+    )
 }
 
 /// Validates scan size and configuration limits, returning the total probe count.
@@ -794,41 +771,6 @@ fn validate_probe_count(
     Ok(probe_count)
 }
 
-/// Advances a progress deadline past `elapsed`, skipping any missed intervals.
-fn advance_progress_deadline(mut deadline: Duration, elapsed: Duration) -> Duration {
-    while deadline <= elapsed {
-        deadline = next_progress_deadline(deadline);
-    }
-    deadline
-}
-
-/// Returns the next progress deadline after `previous`.
-///
-/// Follows a growing schedule: every minute for the first ten minutes, every ten minutes through
-/// the first hour, then every thirty minutes thereafter.
-fn next_progress_deadline(previous: Duration) -> Duration {
-    let interval = if previous < TEN_MINUTES {
-        ONE_MINUTE
-    } else if previous < ONE_HOUR {
-        TEN_MINUTES
-    } else {
-        THIRTY_MINUTES
-    };
-    previous + interval
-}
-
-/// Parses a single TCP port, rejecting port zero.
-fn parse_port(input: &str) -> Result<Port, PortsError> {
-    let port = input.parse().map_err(|source| PortsError::InvalidPort {
-        input: input.to_owned(),
-        source,
-    })?;
-    if port == 0 {
-        return Err(PortsError::PortZero);
-    }
-    Ok(port)
-}
-
 /// Picks a random ephemeral TCP source port in `49152..65536`, reused for every probe in the scan.
 #[expect(
     clippy::as_conversions,
@@ -844,6 +786,29 @@ fn nonce() -> u32 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .subsec_nanos()
+}
+
+/// Builds the expected-response table mapping each target/port pair to its deterministic sequence
+/// number.
+///
+/// Returns [`ScanError::DuplicatePair`] for a duplicate target/port pair.
+fn expected_responses(
+    config: &ScanConfig,
+    nonce: u32,
+    probe_count: usize,
+) -> Result<ExpectedResponses, ScanError> {
+    let mut expected = HashMap::with_capacity(probe_count);
+    for &host in &config.targets {
+        for &port in &config.ports {
+            if expected
+                .insert((host, port), sequence(host, port, nonce))
+                .is_some()
+            {
+                return Err(ScanError::DuplicatePair { host, port });
+            }
+        }
+    }
+    Ok(expected)
 }
 
 /// Derives the deterministic expected TCP sequence number for a host/port pair, given the nonce.
@@ -896,6 +861,29 @@ fn syn_packet(
     tcp.set_checksum(ipv4_checksum(&tcp.to_immutable(), &source, &destination));
     ipv4.set_checksum(checksum(&ipv4.to_immutable()));
     bytes
+}
+
+/// Advances a progress deadline past `elapsed`, skipping any missed intervals.
+fn advance_progress_deadline(mut deadline: Duration, elapsed: Duration) -> Duration {
+    while deadline <= elapsed {
+        deadline = next_progress_deadline(deadline);
+    }
+    deadline
+}
+
+/// Returns the next progress deadline after `previous`.
+///
+/// Follows a growing schedule: every minute for the first ten minutes, every ten minutes through
+/// the first hour, then every thirty minutes thereafter.
+fn next_progress_deadline(previous: Duration) -> Duration {
+    let interval = if previous < TEN_MINUTES {
+        ONE_MINUTE
+    } else if previous < ONE_HOUR {
+        TEN_MINUTES
+    } else {
+        THIRTY_MINUTES
+    };
+    previous + interval
 }
 
 /// Configuration for receiving packets.
@@ -998,6 +986,18 @@ fn classify_response(
         port: key.1,
         state,
     })
+}
+
+/// Extracts a human-readable message from a thread panic payload.
+///
+/// Falls back to a generic message when the payload isn't the common `&str` or `String` shape
+/// produced by `panic!`.
+fn describe_panic_payload(payload: &(dyn Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("unknown panic payload")
 }
 
 #[cfg(test)]
