@@ -1001,13 +1001,16 @@ fn classify_response(
     if ipv4.get_destination() != source {
         return None;
     }
+
     let tcp = TcpPacket::new(ipv4.payload())?;
     let key = (ipv4.get_source(), tcp.get_source());
+    let (host, port) = key;
     let sequence = expected.get(&key)?;
     if tcp.get_destination() != source_port || tcp.get_acknowledgement() != sequence.wrapping_add(1)
     {
         return None;
     }
+
     let flags = tcp.get_flags();
     let state = if flags == TcpFlags::SYN | TcpFlags::ACK {
         PortState::Open
@@ -1016,14 +1019,13 @@ fn classify_response(
     } else {
         return None;
     };
+
+    // Return `None` if the key is already seen, to avoid duplicate results.
     if !seen.insert(key) {
         return None;
     }
-    Some(ScanResult {
-        host: key.0,
-        port: key.1,
-        state,
-    })
+
+    Some(ScanResult { host, port, state })
 }
 
 /// Extracts a human-readable message from a thread panic payload.
