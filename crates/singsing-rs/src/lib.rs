@@ -171,7 +171,7 @@ pub enum ScanError {
     /// The configured bandwidth overflowed while converting to a packet rate.
     #[error("bandwidth is too large")]
     BandwidthOverflow,
-    /// The configured timeout exceeds the maximum.
+    /// The configured late-reply timeout exceeds the maximum.
     #[error("timeout of {timeout:?} exceeds the maximum of {max:?}")]
     TimeoutTooLarge {
         /// The requested timeout.
@@ -304,7 +304,7 @@ pub struct ScanConfig {
 }
 
 impl ScanConfig {
-    /// Creates a configuration with 15 KiB/s bandwidth and a 30-second timeout.
+    /// Creates a configuration with 15 KiB/s bandwidth and a 30-second late-reply timeout.
     #[must_use]
     pub const fn new(targets: Vec<Ipv4Addr>, ports: Vec<Port>, source: Ipv4Addr) -> Self {
         Self {
@@ -744,8 +744,8 @@ fn validate_scan(config: &ScanConfig) -> Result<usize, ScanError> {
 
 /// Validates scan size and configuration limits, returning the total probe count.
 ///
-/// Rejects an empty target or port list, zero bandwidth, a timeout above [`MAX_TIMEOUT`], and a
-/// target×port product above [`MAX_PROBES`].
+/// Rejects an empty target or port list, zero bandwidth, a late-reply timeout above
+/// [`MAX_TIMEOUT`], and a target * port product above [`MAX_PROBES`].
 fn validate_probe_count(
     target_count: usize,
     port_count: usize,
@@ -778,7 +778,7 @@ fn validate_probe_count(
     Ok(probe_count)
 }
 
-/// Picks a random ephemeral TCP source port in `49152..65536`, reused for every probe in the scan.
+/// Picks a random ephemeral TCP source port in the `49152..=65535` range, reused for every probe in the scan.
 #[expect(
     clippy::as_conversions,
     reason = "`nonce() % 16384` is always in `0..16384`, so it always fits in a `u16`"
