@@ -658,6 +658,10 @@ pub fn scan_with_callbacks(
             }
 
             // Track progress and invoke the callback if necessary.
+            //
+            // Unlike a failing `on_result` on the receive side, a failing `on_progress` here stops
+            // the send loop like any other send-loop error, so it's preserved as `SendError::Callback`
+            // inside `IncompleteScanError` (with partial results and counts), not discarded.
             let now = Instant::now();
             let elapsed = now.duration_since(started);
             if elapsed >= next_progress {
@@ -931,22 +935,35 @@ fn receive(
     let mut deadline = None;
 
     loop {
+        // Check the done flag and set the deadline only once.
         if config.done.load(Ordering::Acquire) && deadline.is_none() {
             deadline = Some(Instant::now() + config.timeout);
         }
+        // Break the loop if the deadline has passed.
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             break;
         }
+
+        // Calculate the wait duration based on the deadline (capped at 100ms).
         let wait = deadline
             .and_then(|deadline| deadline.checked_duration_since(Instant::now()))
             .unwrap_or(Duration::from_millis(100))
             .min(Duration::from_millis(100));
+
+        // Try to read a packet, blocking for at most `wait`.
+        //
+        // A genuine I/O error becomes a `ScanError::Receive` and ends the whole scan.
+        // If no packet is received within `wait`, continue to the next iteration.
         let Some((ipv4, _)) = iterator
             .next_with_timeout(wait)
             .map_err(ScanError::Receive)?
         else {
             continue;
         };
+
+        // If a packet is received, classify it and add it to the results.
+        //
+        // If the packet is not a valid response, it is ignored and the scan continues.
         let Some(result) = classify_response(
             &ipv4,
             config.expected,
@@ -957,9 +974,14 @@ fn receive(
         ) else {
             continue;
         };
+
+        // Call the user-defined callback with the accepted result and then add it to the results
+        // in raw arrival order. Unlike a send-loop failure, a failing callback here currently
+        // discards `results` entirely rather than preserving it via `IncompleteScanError`.
         on_result(result).map_err(ScanError::Callback)?;
         results.push(result);
     }
+
     Ok(results)
 }
 
