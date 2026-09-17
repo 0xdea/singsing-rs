@@ -45,6 +45,7 @@ const RECEIVE_BUFFER_LEN: usize = 1 << 20;
 const MAX_PROBES: usize = 16_777_214;
 /// The maximum time to listen for late replies after the final probe.
 const MAX_TIMEOUT: Duration = Duration::from_hours(24);
+
 /// One minute duration.
 const ONE_MINUTE: Duration = Duration::from_mins(1);
 /// Ten minute duration.
@@ -708,6 +709,7 @@ pub fn scan_with_callbacks(
 /// and broadcast addresses are excluded. Returns `None` on prefix-length arithmetic overflow.
 fn usable_target_count(network: Ipv4Net) -> Option<usize> {
     let host_bits = 32_u32.checked_sub(u32::from(network.prefix_len()))?;
+
     match host_bits {
         0 => Some(1),
         1 => Some(2),
@@ -721,9 +723,11 @@ fn parse_port(input: &str) -> Result<Port, PortsError> {
         input: input.to_owned(),
         source,
     })?;
+
     if port == 0 {
         return Err(PortsError::PortZero);
     }
+
     Ok(port)
 }
 
@@ -759,6 +763,7 @@ fn validate_probe_count(
             max: MAX_TIMEOUT,
         });
     }
+
     let probe_count = target_count
         .checked_mul(port_count)
         .ok_or(ScanError::ScanSizeOverflow)?;
@@ -768,6 +773,7 @@ fn validate_probe_count(
             max: MAX_PROBES,
         });
     }
+
     Ok(probe_count)
 }
 
@@ -781,6 +787,8 @@ fn source_port() -> Port {
 }
 
 /// Returns a per-scan random nonce derived from the current sub-second time.
+///
+/// This nonce is not cryptographically robust, but it is sufficient for our purposes.
 fn nonce() -> u32 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -798,6 +806,7 @@ fn expected_responses(
     probe_count: usize,
 ) -> Result<ExpectedResponses, ScanError> {
     let mut expected = HashMap::with_capacity(probe_count);
+
     for &host in &config.targets {
         for &port in &config.ports {
             if expected
@@ -812,6 +821,11 @@ fn expected_responses(
 }
 
 /// Derives the deterministic expected TCP sequence number for a host/port pair, given the nonce.
+///
+/// This allows to correlate a reply with a probe, without the need to track live per-connection
+/// state in memory. This classic stateless-SYN-scanning trick is robust against accidental
+/// misclassification, but it does not provide any protection against a deliberately hostile
+/// target trying to defeat correlation.
 fn sequence(host: Ipv4Addr, port: Port, nonce: u32) -> SeqNum {
     u32::from(host)
         .rotate_left(13)
