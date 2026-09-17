@@ -670,6 +670,7 @@ pub fn scan_with_callbacks(
                 next_progress = advance_progress_deadline(next_progress, elapsed);
             }
         }
+
         Ok(())
     })();
 
@@ -691,9 +692,9 @@ pub fn scan_with_callbacks(
     results.sort_unstable_by_key(|result| (u32::from(result.host), result.port));
 
     // If the send loop failed mid-scan, return an `IncompleteScanError` with the collected results.
-    if let Err(e) = send_result {
+    if let Err(error) = send_result {
         return Err(ScanError::Incomplete(IncompleteScanError {
-            source: e,
+            source: error,
             partial_results: results,
             probes_sent,
             total_probes: probe_count,
@@ -874,6 +875,7 @@ fn syn_packet(
     tcp.set_window(64240);
     tcp.set_checksum(ipv4_checksum(&tcp.to_immutable(), &source, &destination));
     ipv4.set_checksum(checksum(&ipv4.to_immutable()));
+
     bytes
 }
 
