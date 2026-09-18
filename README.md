@@ -151,9 +151,8 @@ It belongs to the broader family of asynchronous scanners that includes [`scanra
 
 ## TODO
 
-- Maybe port to macOS (or even Windows) if there's interest.
-- Maybe add optional `serde` support (`Serialize`/`Deserialize`) for `ScanResult`, `ScanProgress`,
-  and `PortState`, behind a feature flag, if there's interest in structured (e.g. JSON) output.
+- Add optional `serde` support (`Serialize`/`Deserialize`) for `ScanResult`, `ScanProgress`, and `PortState`, behind a feature flag, to support structured (e.g. JSON) output.
+- Maybe port to macOS if there's interest.
 
 ## Implementation details
 
