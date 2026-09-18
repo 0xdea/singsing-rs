@@ -70,6 +70,18 @@ type ExpectedResponses = HashMap<(Ipv4Addr, Port), SeqNum>;
 pub type CallbackError = Box<dyn Error + Send + Sync>;
 
 /// An error resolving a network interface's IPv4 address.
+///
+/// # Examples
+///
+/// ```
+/// use singsing_rs::{InterfaceError, interface_ipv4};
+///
+/// let name = "singsing-rs-example-missing-interface";
+/// match interface_ipv4(name) {
+///     Err(InterfaceError::NotFound { name: n }) => assert_eq!(n, name),
+///     other => panic!("unexpected result: {other:?}"),
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum InterfaceError {
@@ -88,6 +100,17 @@ pub enum InterfaceError {
 }
 
 /// An error parsing scan targets.
+///
+/// # Examples
+///
+/// ```
+/// use singsing_rs::{TargetsError, parse_targets};
+///
+/// assert!(matches!(
+///     parse_targets("10.0.0.0/7"),
+///     Err(TargetsError::TooLarge { .. })
+/// ));
+/// ```
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum TargetsError {
@@ -108,6 +131,14 @@ pub enum TargetsError {
 }
 
 /// An error parsing or reading scan ports.
+///
+/// # Examples
+///
+/// ```
+/// use singsing_rs::{PortsError, parse_ports};
+///
+/// assert!(matches!(parse_ports("0"), Err(PortsError::PortZero)));
+/// ```
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum PortsError {
@@ -159,6 +190,16 @@ pub enum PortsError {
 }
 
 /// An error running a scan.
+///
+/// # Examples
+///
+/// ```
+/// use singsing_rs::{ScanConfig, ScanError, scan};
+/// use std::net::Ipv4Addr;
+///
+/// let config = ScanConfig::new(Vec::new(), vec![80], Ipv4Addr::LOCALHOST);
+/// assert!(matches!(scan(&config), Err(ScanError::EmptyScan)));
+/// ```
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ScanError {
@@ -241,7 +282,29 @@ pub enum SendError {
     Callback(#[source] CallbackError),
 }
 
-/// An error that stopped transmission after part of a scan was sent.
+/// An error that stopped transmission after part of a scan was executed.
+///
+/// `IncompleteScanError` has no public constructor; callers only ever obtain one from
+/// [`ScanError::Incomplete`], returned by [`scan`]/[`scan_with_callback`]/[`scan_with_callbacks`].
+///
+/// # Examples
+///
+/// ```no_run
+/// use singsing_rs::{ScanConfig, ScanError, scan};
+/// use std::net::Ipv4Addr;
+///
+/// let config = ScanConfig::new(vec![Ipv4Addr::LOCALHOST], vec![80], Ipv4Addr::LOCALHOST);
+/// if let Err(ScanError::Incomplete(incomplete)) = scan(&config) {
+///     eprintln!(
+///         "sent {} of {} probes before stopping",
+///         incomplete.probes_sent(),
+///         incomplete.total_probes()
+///     );
+///     for result in incomplete.partial_results() {
+///         println!("{result:?}");
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 #[error("scan stopped after sending {probes_sent} of {total_probes} probes")]
 pub struct IncompleteScanError {
@@ -305,6 +368,20 @@ pub struct ScanConfig {
 
 impl ScanConfig {
     /// Creates a configuration with 15 KiB/s bandwidth and a 30-second late-reply timeout.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use singsing_rs::ScanConfig;
+    /// use std::net::Ipv4Addr;
+    ///
+    /// let target: Ipv4Addr = "192.168.2.10".parse().unwrap();
+    /// let mut config = ScanConfig::new(vec![target], vec![22, 80, 443], Ipv4Addr::LOCALHOST);
+    /// config.show_closed = true;
+    ///
+    /// assert_eq!(config.bandwidth_kib, 15);
+    /// assert!(config.show_closed);
+    /// ```
     #[must_use]
     pub const fn new(targets: Vec<Ipv4Addr>, ports: Vec<Port>, source: Ipv4Addr) -> Self {
         Self {
@@ -351,6 +428,8 @@ impl ScanProgress {
     }
 
     /// Estimates the time required to send the remaining probes.
+    ///
+    /// Returns `None` before the first probe is sent, since no rate can be estimated yet.
     #[must_use]
     pub fn estimated_remaining(self) -> Option<Duration> {
         let sent = u32::try_from(self.probes_sent).ok()?;
@@ -364,6 +443,20 @@ impl ScanProgress {
 }
 
 /// The state inferred from a TCP response.
+///
+/// # Examples
+///
+/// ```
+/// use singsing_rs::{PortState, ScanResult};
+/// use std::net::Ipv4Addr;
+///
+/// let result = ScanResult::new(Ipv4Addr::LOCALHOST, 443, PortState::Open);
+/// match result.state {
+///     PortState::Open => println!("{}:{} is open", result.host, result.port),
+///     PortState::Closed => println!("{}:{} is closed", result.host, result.port),
+///     _ => println!("{}:{} is some other state", result.host, result.port),
+/// }
+/// ```
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum PortState {
@@ -398,6 +491,15 @@ impl ScanResult {
 /// # Errors
 ///
 /// Returns an error if the interface does not exist or has no IPv4 address.
+///
+/// # Examples
+///
+/// ```
+/// use singsing_rs::interface_ipv4;
+/// use std::net::Ipv4Addr;
+///
+/// assert_eq!(interface_ipv4("lo").unwrap(), Ipv4Addr::LOCALHOST);
+/// ```
 pub fn interface_ipv4(name: &str) -> Result<Ipv4Addr, InterfaceError> {
     let interface = datalink::interfaces()
         .into_iter()
@@ -428,6 +530,19 @@ pub fn interface_ipv4(name: &str) -> Result<Ipv4Addr, InterfaceError> {
 ///
 /// Returns an error for malformed IPv4/CIDR input or a network containing more usable addresses
 /// than a `/8`.
+///
+/// # Examples
+///
+/// ```
+/// use singsing_rs::parse_targets;
+///
+/// use std::net::Ipv4Addr;
+///
+/// assert_eq!(
+///     parse_targets("192.168.2.0/30").unwrap(),
+///     ["192.168.2.1".parse::<Ipv4Addr>().unwrap(), "192.168.2.2".parse::<Ipv4Addr>().unwrap()]
+/// );
+/// ```
 pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>, TargetsError> {
     let network = if input.contains('/') {
         input.parse().map_err(TargetsError::InvalidNetwork)?
@@ -454,6 +569,14 @@ pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>, TargetsError> {
 /// # Errors
 ///
 /// Returns an error for empty items, reversed ranges, port zero, or values larger than 65535.
+///
+/// # Examples
+///
+/// ```
+/// use singsing_rs::parse_ports;
+///
+/// assert_eq!(parse_ports("22,80,79-81").unwrap(), [22, 79, 80, 81]);
+/// ```
 pub fn parse_ports(input: &str) -> Result<Vec<Port>, PortsError> {
     let mut ports = BTreeSet::new();
 
@@ -499,6 +622,22 @@ pub fn parse_ports(input: &str) -> Result<Vec<Port>, PortsError> {
 /// # Errors
 ///
 /// Returns an error when the file cannot be read or contains no TCP services.
+///
+/// # Examples
+///
+/// ```
+/// use singsing_rs::ports_from_services;
+/// use std::fs;
+///
+/// let path = std::env::temp_dir().join("singsing-rs-doctest-services");
+/// fs::write(&path, "ssh 22/tcp\ndomain 53/udp\nhttp 80/tcp\n")?;
+///
+/// let ports = ports_from_services(&path)?;
+/// fs::remove_file(&path)?;
+///
+/// assert_eq!(ports, [22, 80]);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<Port>, PortsError> {
     let contents =
         fs::read_to_string(path.as_ref()).map_err(|source| PortsError::ServicesFileRead {
@@ -545,6 +684,21 @@ pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<Port>, PortsErr
 /// timeout, duplicate targets or ports, raw socket permission failures, packet send failures,
 /// or receiver failures. A transmission-phase failure is returned as [`IncompleteScanError`],
 /// which retains results received for successfully sent probes.
+///
+/// # Examples
+///
+/// ```no_run
+/// use singsing_rs::{ScanConfig, interface_ipv4, parse_targets, scan};
+///
+/// let source = interface_ipv4("eth0")?;
+/// let targets = parse_targets("192.168.2.10")?;
+/// let config = ScanConfig::new(targets, vec![22, 80, 443], source);
+///
+/// for result in scan(&config)? {
+///     println!("{result:?}");
+/// }
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>, ScanError> {
     scan_with_callbacks(config, |_| Ok(()), |_| Ok(()))
 }
@@ -557,6 +711,22 @@ pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>, ScanError> {
 /// # Errors
 ///
 /// Returns the same errors as [`scan`], along with errors returned by `on_result`.
+///
+/// # Examples
+///
+/// ```no_run
+/// use singsing_rs::{ScanConfig, interface_ipv4, parse_targets, scan_with_callback};
+///
+/// let source = interface_ipv4("eth0")?;
+/// let targets = parse_targets("192.168.2.10")?;
+/// let config = ScanConfig::new(targets, vec![22, 80, 443], source);
+///
+/// scan_with_callback(&config, |result| {
+///     println!("{result:?}");
+///     Ok(())
+/// })?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn scan_with_callback(
     config: &ScanConfig,
     on_result: impl FnMut(ScanResult) -> Result<(), CallbackError> + Send + 'static,
@@ -574,6 +744,29 @@ pub fn scan_with_callback(
 /// # Errors
 ///
 /// Returns the same errors as [`scan`], along with errors returned by either callback.
+///
+/// # Examples
+///
+/// ```no_run
+/// use singsing_rs::{ScanConfig, interface_ipv4, parse_targets, scan_with_callbacks};
+///
+/// let source = interface_ipv4("eth0")?;
+/// let targets = parse_targets("192.168.2.10")?;
+/// let config = ScanConfig::new(targets, vec![22, 80, 443], source);
+///
+/// scan_with_callbacks(
+///     &config,
+///     |result| {
+///         println!("{result:?}");
+///         Ok(())
+///     },
+///     |progress| {
+///         eprintln!("{}% complete", progress.percent());
+///         Ok(())
+///     },
+/// )?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn scan_with_callbacks(
     config: &ScanConfig,
     mut on_result: impl FnMut(ScanResult) -> Result<(), CallbackError> + Send + 'static,
