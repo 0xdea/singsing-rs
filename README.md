@@ -113,6 +113,14 @@ Run `zucchini --help` for the complete command-line reference.
 Library users can construct a [`ScanConfig`](https://docs.rs/singsing-rs/latest/singsing_rs/struct.ScanConfig.html)
 and call [`scan`](https://docs.rs/singsing-rs/latest/singsing_rs/fn.scan.html). See the [API documentation](https://docs.rs/singsing-rs/latest/singsing_rs/) for more details.
 
+## Performance
+
+At a bandwidth of 40 KiB/s (a reasonable, if conservative, value for most source and target networks), `zucchini` can scan a `/29` network (6 hosts) on all ports in under 7 minutes. At the same bandwidth setting, it can fully scan a `/24` network (254 hosts) in approximately 4 hours and 30 minutes.
+
+## Compatibility
+
+The scanner is intentionally Linux-only. The release build and test suite have been verified to work on Ubuntu Linux 24.04 (`x86_64` and `aarch64`).
+
 ## Testing
 
 Run the unit tests and unprivileged integration tests normally:
@@ -130,10 +138,6 @@ sudo --preserve-env=PATH,CARGO_HOME,RUSTUP_HOME \
 ```
 
 The separate target directory prevents Cargo from leaving root-owned build artifacts in the repository's normal `target/` directory. The ignored tests are still compiled by ordinary test and CI runs, so API changes cannot silently break them.
-
-## Compatibility
-
-The scanner is intentionally Linux-only. The release build and test suite have been verified to work on Ubuntu Linux 24.04 (`x86_64` and `aarch64`).
 
 ## Credits
 
