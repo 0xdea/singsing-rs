@@ -3,7 +3,7 @@ members = ["crates/singsing-rs", "crates/zucchini-scanner"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Marco Ivaldi <raptor@0xdeadbeef.info>"]
 edition = "2024"
 homepage = "https://0xdeadbeef.info/"
