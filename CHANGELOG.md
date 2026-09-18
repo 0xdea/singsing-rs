@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improve workspace organization and dependency management.
 - Improve documentation.
 
-## [0.1.1] - 2026-09-18
+## 0.1.1 - 2026-09-18
 
 ### Changed
 
@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fix failed doc build in CI and docs.rs.
 
-## [0.1.0] - 2026-09-18
+## 0.1.0 - 2026-09-18
 
 - First release to be published to [crates.io](https://crates.io/).
 
