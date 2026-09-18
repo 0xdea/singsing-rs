@@ -1,5 +1,5 @@
 [package]
-name = "zucchini"
+name = "zucchini-scanner"
 description = "Blazing-fast TCP port scanner for Linux"
 categories = ["security", "network-programming", "command-line-utilities"]
 version.workspace = true
@@ -12,11 +12,16 @@ license.workspace = true
 keywords.workspace = true
 exclude.workspace = true
 
+# The crate is published as `zucchini-scanner`, but the binary it produces is named `zucchini`.
+[[bin]]
+name = "zucchini"
+path = "src/main.rs"
+
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
-singsing-rs = { path = "../singsing-rs", version = "0.1.0" }
+singsing-rs = { path = "../singsing-rs", version = "0.1.1" }
 
 [lints]
 workspace = true

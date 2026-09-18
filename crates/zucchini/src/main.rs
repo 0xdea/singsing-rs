@@ -21,8 +21,8 @@ use singsing_rs::{
     scan_with_callbacks,
 };
 
-/// Package name.
-const PROGRAM: &str = env!("CARGO_PKG_NAME");
+/// Binary name.
+const PROGRAM: &str = env!("CARGO_BIN_NAME");
 /// Package version.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Package description.
@@ -61,7 +61,7 @@ impl FromStr for Ports {
 
 /// Command-line arguments.
 #[derive(Debug, Parser)]
-#[command(disable_help_flag = true, about = None)]
+#[command(name = PROGRAM, disable_help_flag = true, about = None)]
 struct Arguments {
     /// Network interface to use for the scan.
     #[arg(short = 'i', long)]

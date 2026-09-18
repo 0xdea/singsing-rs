@@ -2,7 +2,7 @@
 
 [![](https://img.shields.io/github/stars/0xdea/singsing-rs.svg?style=flat&color=yellow)](https://github.com/0xdea/singsing-rs)
 [![](https://img.shields.io/crates/v/singsing-rs?style=flat&color=green&label=singsing-rs)](https://crates.io/crates/singsing-rs)
-[![](https://img.shields.io/crates/v/zucchini?style=flat&color=red&label=zucchini)](https://crates.io/crates/zucchini)
+[![](https://img.shields.io/crates/v/zucchini-scanner?style=flat&color=red&label=zucchini)](https://crates.io/crates/zucchini-scanner)
 [![](https://img.shields.io/badge/twitter-%400xdea-blue.svg)](https://twitter.com/0xdea)
 [![](https://img.shields.io/badge/mastodon-%40raptor-purple.svg)](https://infosec.exchange/@raptor)
 [![build](https://github.com/0xdea/singsing-rs/actions/workflows/build.yml/badge.svg)](https://github.com/0xdea/singsing-rs/actions/workflows/build.yml)
@@ -14,7 +14,7 @@
 The [`singsing-rs`](https://github.com/0xdea/singsing-rs/tree/master/crates/singsing-rs) library crate is my modern Rust reimplementation of the original [`singsing`](https://github.com/inode-/singsing) project, written in C by my old friend and longtime packet wizard [inode](https://github.com/inode-). It's a blazing-fast ⚡️ yet very reliable IPv4/TCP port scanning library for Linux.
 
 The [`zucchini`](https://github.com/0xdea/singsing-rs/tree/master/crates/zucchini) binary crate is a standalone command-line port scanner based on `singsing-rs`, inspired by the original
-[`zucca`](https://github.com/inode-/singsing/blob/master/src/examples/zucca.c) scanner from the `singsing` project.
+[`zucca`](https://github.com/inode-/singsing/blob/master/src/examples/zucca.c) scanner from the `singsing` project. It's published on crates.io as `zucchini-scanner`.
 
 ![](https://raw.githubusercontent.com/0xdea/singsing-rs/master/.img/screen01.png)
 
@@ -45,10 +45,10 @@ See [below](https://github.com/0xdea/singsing-rs#implementation-details) for the
 
 ## Installing
 
-Install the latest release of the scanner from [crates.io](https://crates.io/crates/zucchini):
+Install the latest release of the scanner from [crates.io](https://crates.io/crates/zucchini-scanner) (this installs the `zucchini` binary):
 
 ```sh
-cargo install zucchini --locked
+cargo install zucchini-scanner --locked
 ```
 
 To use the scanning library in another Rust project:
