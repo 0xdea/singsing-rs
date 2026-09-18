@@ -70,6 +70,8 @@ CI (`.github/workflows/build.yml`) runs, in order: `cargo fmt --check`, `cargo b
 
 Two different suppression mechanisms are used deliberately, not interchangeably: a workspace-level `= "allow"` entry in `Cargo.toml` is for lints considered broadly noisy across the whole codebase (e.g. `shadow_reuse`, `arithmetic_side_effects`, `integer_division`, `integer_division_remainder_used`, `pattern_type_mismatch` — the last because it directly conflicts with `ref_patterns`/`needless_borrowed_reference`, which this codebase relies on throughout via ordinary match ergonomics); a function/statement-level `#[expect(clippy::LINT, reason = "...")]` is for lints kept live everywhere else but locally justified at one call site (e.g. `expect_used` in `syn_packet` on the provably-infallible fixed-size packet construction, `as_conversions` on provably-lossless truncating casts, `iter_over_hash_type` on the deliberately-randomized send loop). When a new lint fires, decide which bucket it belongs in rather than defaulting to either one.
 
+`#[derive(...)]` lists are written in alphabetical order by trait name (e.g. `Clone, Copy, Debug, Eq, Hash, PartialEq`, not grouped by category or usage) throughout both crates. Nothing enforces this automatically — `rustfmt` does not reorder derive lists, and no active clippy lint checks their order — so keep new derives sorted by hand.
+
 ## Architecture (`crates/singsing-rs/src/lib.rs`)
 
 Everything lives in one file, organized around a single entry point, `scan`/`scan_with_callback`/`scan_with_callbacks` (`ScanConfig` in, `Vec<ScanResult>` out). Understanding a change usually requires following this pipeline:

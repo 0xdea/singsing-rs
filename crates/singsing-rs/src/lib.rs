@@ -4,6 +4,13 @@
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/0xdea/singsing-rs/master/.img/logo_singsing.png"
 )]
+#![expect(
+    clippy::pub_use,
+    reason = "the crate's one `pub use` re-exports a foreign `ipnet` type that already appears \
+              in our public API (`TargetsError`), the deliberate exception this lint warns \
+              against as a module-layout anti-pattern; `use` items can't carry the attribute \
+              themselves, so it's set here instead"
+)]
 
 #[cfg(not(target_os = "linux"))]
 compile_error!("singsing-rs only supports Linux (see the Compatibility section in README.md)");
@@ -19,7 +26,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{fs, io, thread};
 
-use ipnet::Ipv4Net;
 use pnet::datalink;
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet, checksum};
@@ -69,6 +75,12 @@ type ExpectedResponses = HashMap<(Ipv4Addr, Port), SeqNum>;
 /// their error is boxed rather than typed.
 pub type CallbackError = Box<dyn Error + Send + Sync>;
 
+/// Foreign types from `ipnet` that appear in this crate's public API (see [`TargetsError`]).
+///
+/// Re-exported so callers can name them without adding `ipnet` as a separate direct dependency,
+/// and so that a semver-breaking `ipnet` upgrade shows up as a `singsing-rs` API change too.
+pub use ipnet::{AddrParseError, Ipv4Net};
+
 /// An error resolving a network interface's IPv4 address.
 ///
 /// # Examples
@@ -116,10 +128,10 @@ pub enum InterfaceError {
 pub enum TargetsError {
     /// The input contained `/` but was not a valid IPv4 network.
     #[error("invalid IPv4 network")]
-    InvalidNetwork(#[source] ipnet::AddrParseError),
+    InvalidNetwork(#[source] AddrParseError),
     /// The input was not a valid IPv4 address.
     #[error("invalid IPv4 address")]
-    InvalidAddress(#[source] ipnet::AddrParseError),
+    InvalidAddress(#[source] AddrParseError),
     /// The network contains more usable addresses than the scan limit allows.
     #[error("{network} contains more than {max} usable addresses; split networks larger than a /8")]
     TooLarge {
@@ -340,7 +352,7 @@ impl IncompleteScanError {
 }
 
 /// Configuration for one SYN scan.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[non_exhaustive]
 pub struct ScanConfig {
     /// IPv4 addresses to scan.
@@ -375,12 +387,13 @@ impl ScanConfig {
     /// use singsing_rs::ScanConfig;
     /// use std::net::Ipv4Addr;
     ///
-    /// let target: Ipv4Addr = "192.168.2.10".parse().unwrap();
+    /// let target: Ipv4Addr = "192.168.2.10".parse()?;
     /// let mut config = ScanConfig::new(vec![target], vec![22, 80, 443], Ipv4Addr::LOCALHOST);
     /// config.show_closed = true;
     ///
     /// assert_eq!(config.bandwidth_kib, 15);
     /// assert!(config.show_closed);
+    /// # Ok::<(), std::net::AddrParseError>(())
     /// ```
     #[must_use]
     pub const fn new(targets: Vec<Ipv4Addr>, ports: Vec<Port>, source: Ipv4Addr) -> Self {
@@ -396,7 +409,7 @@ impl ScanConfig {
 }
 
 /// Probe sending progress reported during a scan.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[non_exhaustive]
 pub struct ScanProgress {
     /// Number of probes sent so far.
@@ -457,7 +470,7 @@ impl ScanProgress {
 ///     _ => println!("{}:{} is some other state", result.host, result.port),
 /// }
 /// ```
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[non_exhaustive]
 pub enum PortState {
     /// A SYN/ACK was received.
@@ -467,7 +480,7 @@ pub enum PortState {
 }
 
 /// One response produced by a scan.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[non_exhaustive]
 pub struct ScanResult {
     /// The responding host.
@@ -495,10 +508,11 @@ impl ScanResult {
 /// # Examples
 ///
 /// ```
-/// use singsing_rs::interface_ipv4;
+/// use singsing_rs::{InterfaceError, interface_ipv4};
 /// use std::net::Ipv4Addr;
 ///
-/// assert_eq!(interface_ipv4("lo").unwrap(), Ipv4Addr::LOCALHOST);
+/// assert_eq!(interface_ipv4("lo")?, Ipv4Addr::LOCALHOST);
+/// # Ok::<(), InterfaceError>(())
 /// ```
 pub fn interface_ipv4(name: &str) -> Result<Ipv4Addr, InterfaceError> {
     let interface = datalink::interfaces()
@@ -535,13 +549,13 @@ pub fn interface_ipv4(name: &str) -> Result<Ipv4Addr, InterfaceError> {
 ///
 /// ```
 /// use singsing_rs::parse_targets;
-///
 /// use std::net::Ipv4Addr;
 ///
 /// assert_eq!(
-///     parse_targets("192.168.2.0/30").unwrap(),
-///     ["192.168.2.1".parse::<Ipv4Addr>().unwrap(), "192.168.2.2".parse::<Ipv4Addr>().unwrap()]
+///     parse_targets("192.168.2.0/30")?,
+///     ["192.168.2.1".parse::<Ipv4Addr>()?, "192.168.2.2".parse()?]
 /// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>, TargetsError> {
     let network = if input.contains('/') {
@@ -573,9 +587,10 @@ pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>, TargetsError> {
 /// # Examples
 ///
 /// ```
-/// use singsing_rs::parse_ports;
+/// use singsing_rs::{PortsError, parse_ports};
 ///
-/// assert_eq!(parse_ports("22,80,79-81").unwrap(), [22, 79, 80, 81]);
+/// assert_eq!(parse_ports("22,80,79-81")?, [22, 79, 80, 81]);
+/// # Ok::<(), PortsError>(())
 /// ```
 pub fn parse_ports(input: &str) -> Result<Vec<Port>, PortsError> {
     let mut ports = BTreeSet::new();
