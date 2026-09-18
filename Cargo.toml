@@ -8,7 +8,6 @@ authors = ["Marco Ivaldi <raptor@0xdeadbeef.info>"]
 edition = "2024"
 homepage = "https://0xdeadbeef.info/"
 repository = "https://github.com/0xdea/singsing-rs"
-readme = "README.md"
 license = "MIT"
 keywords = ["port-scanner", "ipv4", "tcp", "linux", "redteaming"]
 exclude = [".cargo/*", ".github/*", ".img/*", ".gitignore", ".taplo.toml", "tests/*"]

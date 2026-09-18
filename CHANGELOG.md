@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Change the name of the binary crate from `zucchini` to `zucchini-scanner`.
 
+### Fixed
+
+- Fix failed doc build in CI and docs.rs.
+
 ## [0.1.0] - 2026-09-18
 
 - First release to be published to [crates.io](https://crates.io/).
