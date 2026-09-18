@@ -149,6 +149,7 @@ fn run() -> anyhow::Result<()> {
         Ok(results) => write_results(&results)?,
         Err(error) => {
             if let ScanError::Incomplete(incomplete) = &error {
+                write_incomplete_summary(incomplete.probes_sent(), incomplete.total_probes())?;
                 write_results(incomplete.partial_results())?;
             }
             return Err(error.into());
@@ -164,7 +165,7 @@ fn to_boxed_error(error: &anyhow::Error) -> CallbackError {
     format!("{error:#}").into()
 }
 
-/// Prints the program banner to stderr and flush the output stream.
+/// Prints the program banner to stderr and flushes the output stream.
 fn write_banner() -> anyhow::Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
@@ -182,7 +183,7 @@ fn write_banner_to(output: &mut impl Write) -> anyhow::Result<()> {
     .context("failed to write program banner")
 }
 
-/// Writes the scan summary to stderr and flush the output stream before the scan starts.
+/// Writes the scan summary to stderr and flushes the output stream before the scan starts.
 fn write_scan_summary(probes: usize, interface: &str, source: Ipv4Addr) -> anyhow::Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
@@ -226,6 +227,29 @@ fn write_done_summary_to(
     .context("failed to write scan completion")
 }
 
+/// Writes the incomplete scan summary to stderr and flushes the output stream before the partial
+/// results that follow.
+fn write_incomplete_summary(probes_sent: usize, total_probes: usize) -> anyhow::Result<()> {
+    let stderr = io::stderr();
+    let mut output = stderr.lock();
+
+    write_incomplete_summary_to(&mut output, probes_sent, total_probes)?;
+    output.flush().context("failed to flush output stream")
+}
+
+/// Writes the incomplete scan summary to the given output stream.
+fn write_incomplete_summary_to(
+    output: &mut impl Write,
+    probes_sent: usize,
+    total_probes: usize,
+) -> anyhow::Result<()> {
+    writeln!(
+        output,
+        "\nIncomplete: sent {probes_sent} of {total_probes} host/port pairs"
+    )
+    .context("failed to write incomplete scan summary")
+}
+
 /// Writes the results to stdout.
 fn write_results(results: &[ScanResult]) -> anyhow::Result<()> {
     let stdout = io::stdout();
@@ -247,7 +271,7 @@ fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> anyhow::
     Ok(())
 }
 
-/// Writes a verbose scan result to stdout and flush the output stream for live feedback.
+/// Writes a verbose scan result to stdout and flushes the output stream for live feedback.
 fn write_verbose_result(result: ScanResult) -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
@@ -273,7 +297,7 @@ fn write_result_to(
         .context("failed to write scan result")
 }
 
-/// Writes the scan progress to stderr and flush the output stream for live feedback.
+/// Writes the scan progress to stderr and flushes the output stream for live feedback.
 fn write_progress(progress: ScanProgress) -> anyhow::Result<()> {
     let line = format_progress(progress, Local::now());
     let stderr = io::stderr();
@@ -397,6 +421,18 @@ mod tests {
                 Scanning: 3 host/port pairs via eth0 (192.168.2.1)...\n\n\
                 Done: 3 host/port pairs scanned in 30.1 seconds\n"
             )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn formats_incomplete_summary() -> anyhow::Result<()> {
+        let mut output = Vec::new();
+        write_incomplete_summary_to(&mut output, 1, 3)?;
+
+        assert_eq!(
+            String::from_utf8(output)?,
+            "\nIncomplete: sent 1 of 3 host/port pairs\n"
         );
         Ok(())
     }
