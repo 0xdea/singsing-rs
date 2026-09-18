@@ -1,6 +1,6 @@
 #![doc = env!("CARGO_PKG_DESCRIPTION")]
 #![doc = ""]
-#![cfg_attr(doc, doc = include_str!("../../../README.md"))]
+#![cfg_attr(doc, doc = include_str!("../README.md"))]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/0xdea/singsing-rs/master/.img/logo_zucchini.png"
 )]
