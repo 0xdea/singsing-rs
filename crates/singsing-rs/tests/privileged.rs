@@ -44,20 +44,25 @@ fn loopback_listener() -> TcpListener {
     panic!("no loopback test port available between 20000 and 29999");
 }
 
-/// Returns a loopback port that was free a moment ago and has no listener bound to it.
-fn unused_loopback_port() -> Port {
-    let listener = loopback_listener();
-    listener
+/// Returns the port a listener is bound to.
+fn listener_port(listener: &TcpListener) -> Port {
+    let port = listener
         .local_addr()
         .expect("listener should have a local address")
-        .port()
+        .port();
+    Port::new(port).expect("a bound listener's port should never be zero")
+}
+
+/// Returns a loopback port that was free a moment ago and has no listener bound to it.
+fn unused_loopback_port() -> Port {
+    listener_port(&loopback_listener())
 }
 
 #[test]
 #[ignore = "requires Linux and root or CAP_NET_RAW"]
 fn detects_open_loopback_port() {
     let listener = loopback_listener();
-    let port = listener.local_addr().unwrap().port();
+    let port = listener_port(&listener);
 
     assert_eq!(
         scan(&scan_config(vec![port], false)).unwrap(),
@@ -91,8 +96,8 @@ fn controls_closed_loopback_reporting() {
 fn sorts_mixed_loopback_results() {
     let first_listener = loopback_listener();
     let second_listener = loopback_listener();
-    let first_open = first_listener.local_addr().unwrap().port();
-    let second_open = second_listener.local_addr().unwrap().port();
+    let first_open = listener_port(&first_listener);
+    let second_open = listener_port(&second_listener);
     let closed = unused_loopback_port();
     let mut expected = [
         ScanResult::new(Ipv4Addr::LOCALHOST, first_open, PortState::Open),
@@ -113,7 +118,7 @@ fn sorts_mixed_loopback_results() {
 #[ignore = "requires Linux and root or CAP_NET_RAW"]
 fn delivers_callback_and_final_result() {
     let listener = loopback_listener();
-    let port = listener.local_addr().unwrap().port();
+    let port = listener_port(&listener);
     let (sender, receiver) = mpsc::channel();
 
     let results = scan_with_callback(&scan_config(vec![port], false), move |result| {

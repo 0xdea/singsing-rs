@@ -19,7 +19,7 @@ use std::any::Any;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr};
-use std::num::{NonZeroU64, ParseIntError};
+use std::num::{NonZeroU16, NonZeroU64, ParseIntError};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -54,6 +54,8 @@ const MAX_TIMEOUT: Duration = Duration::from_hours(24);
 
 /// The default packet bandwidth in KiB/s, used by [`ScanConfig::new`].
 const DEFAULT_BANDWIDTH_KIB: NonZeroU64 = NonZeroU64::new(15).unwrap();
+/// The first port of the IANA ephemeral range, from which the scan's source port is picked.
+const EPHEMERAL_PORT_START: Port = Port::new(49152).unwrap();
 
 /// One minute duration.
 const ONE_MINUTE: Duration = Duration::from_mins(1);
@@ -65,7 +67,24 @@ const THIRTY_MINUTES: Duration = Duration::from_mins(30);
 const ONE_HOUR: Duration = Duration::from_hours(1);
 
 /// A TCP port number.
-pub type Port = u16;
+///
+/// Port zero is reserved and can't be scanned, so it is ruled out by the type itself rather than
+/// checked at scan time.
+///
+/// # Examples
+///
+/// ```
+/// use singsing_rs::Port;
+///
+/// // A port literal, checked at compile time.
+/// const HTTPS: Port = Port::new(443).unwrap();
+///
+/// assert_eq!(HTTPS.get(), 443);
+/// assert_eq!("443".parse::<Port>()?, HTTPS);
+/// assert!(Port::new(0).is_none());
+/// # Ok::<(), std::num::ParseIntError>(())
+/// ```
+pub type Port = NonZeroU16;
 /// A TCP sequence or acknowledgement number.
 type SeqNum = u32;
 /// Maps each target host/port pair to its expected TCP sequence number.
@@ -209,11 +228,12 @@ pub enum PortsError {
 /// # Examples
 ///
 /// ```
-/// use singsing_rs::{ScanConfig, ScanError, scan};
+/// use singsing_rs::{ScanConfig, ScanError, parse_ports, scan};
 /// use std::net::Ipv4Addr;
 ///
-/// let config = ScanConfig::new(Vec::new(), vec![80], Ipv4Addr::LOCALHOST);
+/// let config = ScanConfig::new(Vec::new(), parse_ports("80")?, Ipv4Addr::LOCALHOST);
 /// assert!(matches!(scan(&config), Err(ScanError::EmptyScan)));
+/// # Ok::<(), singsing_rs::PortsError>(())
 /// ```
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -302,10 +322,14 @@ pub enum SendError {
 /// # Examples
 ///
 /// ```no_run
-/// use singsing_rs::{ScanConfig, ScanError, scan};
+/// use singsing_rs::{ScanConfig, ScanError, parse_ports, scan};
 /// use std::net::Ipv4Addr;
 ///
-/// let config = ScanConfig::new(vec![Ipv4Addr::LOCALHOST], vec![80], Ipv4Addr::LOCALHOST);
+/// let config = ScanConfig::new(
+///     vec![Ipv4Addr::LOCALHOST],
+///     parse_ports("80")?,
+///     Ipv4Addr::LOCALHOST,
+/// );
 /// if let Err(ScanError::Incomplete(incomplete)) = scan(&config) {
 ///     eprintln!(
 ///         "sent {} of {} probes before stopping",
@@ -316,6 +340,7 @@ pub enum SendError {
 ///         println!("{result:?}");
 ///     }
 /// }
+/// # Ok::<(), singsing_rs::PortsError>(())
 /// ```
 #[derive(Debug, thiserror::Error)]
 #[error("scan stopped after sending {probes_sent} of {total_probes} probes")]
@@ -372,7 +397,10 @@ pub struct ScanConfig {
     pub bandwidth_kib: NonZeroU64,
     /// Time to listen for late replies after the final probe.
     ///
-    /// Capped at 24 hours; [`ScanConfig::new`] defaults this to 30 seconds.
+    /// Capped at 24 hours: a larger value is rejected with [`ScanError::TimeoutTooLarge`] before
+    /// any packet is sent. Zero is allowed, and stops listening as soon as the final probe is sent
+    /// (replies that arrived while sending are still returned). [`ScanConfig::new`] defaults this
+    /// to 30 seconds.
     pub timeout: Duration,
     /// Whether RST responses should be returned.
     pub show_closed: bool,
@@ -384,11 +412,14 @@ impl ScanConfig {
     /// # Examples
     ///
     /// ```
-    /// use singsing_rs::ScanConfig;
+    /// use singsing_rs::{Port, ScanConfig};
     /// use std::net::Ipv4Addr;
     ///
-    /// let target: Ipv4Addr = "192.168.2.10".parse()?;
-    /// let mut config = ScanConfig::new(vec![target], vec![22, 80, 443], Ipv4Addr::LOCALHOST);
+    /// const SSH: Port = Port::new(22).unwrap();
+    /// const HTTPS: Port = Port::new(443).unwrap();
+    ///
+    /// let target = "192.168.2.10".parse::<Ipv4Addr>()?;
+    /// let mut config = ScanConfig::new(vec![target], vec![SSH, HTTPS], Ipv4Addr::LOCALHOST);
     /// config.show_closed = true;
     ///
     /// assert_eq!(config.bandwidth_kib.get(), 15);
@@ -460,10 +491,12 @@ impl ScanProgress {
 /// # Examples
 ///
 /// ```
-/// use singsing_rs::{PortState, ScanResult};
+/// use singsing_rs::{Port, PortState, ScanResult};
 /// use std::net::Ipv4Addr;
 ///
-/// let result = ScanResult::new(Ipv4Addr::LOCALHOST, 443, PortState::Open);
+/// const HTTPS: Port = Port::new(443).unwrap();
+///
+/// let result = ScanResult::new(Ipv4Addr::LOCALHOST, HTTPS, PortState::Open);
 /// match result.state {
 ///     PortState::Open => println!("{}:{} is open", result.host, result.port),
 ///     PortState::Closed => println!("{}:{} is closed", result.host, result.port),
@@ -587,9 +620,10 @@ pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>, TargetsError> {
 /// # Examples
 ///
 /// ```
-/// use singsing_rs::{PortsError, parse_ports};
+/// use singsing_rs::{Port, PortsError, parse_ports};
 ///
-/// assert_eq!(parse_ports("22,80,79-81")?, [22, 79, 80, 81]);
+/// let ports = parse_ports("22,80,79-81")?;
+/// assert_eq!(ports.into_iter().map(Port::get).collect::<Vec<_>>(), [22, 79, 80, 81]);
 /// # Ok::<(), PortsError>(())
 /// ```
 pub fn parse_ports(input: &str) -> Result<Vec<Port>, PortsError> {
@@ -623,8 +657,9 @@ pub fn parse_ports(input: &str) -> Result<Vec<Port>, PortsError> {
             });
         }
 
-        // Insert the whole range at once.
-        ports.extend(start..=end);
+        // Insert the whole range at once. `NonZero` integers can't form a range, so iterate over
+        // the raw values; every one is at least `start`, so `Port::new` never drops any of them.
+        ports.extend((start.get()..=end.get()).filter_map(Port::new));
     }
 
     Ok(ports.into_iter().collect())
@@ -641,7 +676,7 @@ pub fn parse_ports(input: &str) -> Result<Vec<Port>, PortsError> {
 /// # Examples
 ///
 /// ```
-/// use singsing_rs::ports_from_services;
+/// use singsing_rs::{Port, ports_from_services};
 /// use std::fs;
 ///
 /// let path = std::env::temp_dir().join("singsing-rs-doctest-services");
@@ -650,7 +685,7 @@ pub fn parse_ports(input: &str) -> Result<Vec<Port>, PortsError> {
 /// let ports = ports_from_services(&path)?;
 /// fs::remove_file(&path)?;
 ///
-/// assert_eq!(ports, [22, 80]);
+/// assert_eq!(ports.into_iter().map(Port::get).collect::<Vec<_>>(), [22, 80]);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<Port>, PortsError> {
@@ -703,11 +738,11 @@ pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<Port>, PortsErr
 /// # Examples
 ///
 /// ```no_run
-/// use singsing_rs::{ScanConfig, interface_ipv4, parse_targets, scan};
+/// use singsing_rs::{ScanConfig, interface_ipv4, parse_ports, parse_targets, scan};
 ///
 /// let source = interface_ipv4("eth0")?;
 /// let targets = parse_targets("192.168.2.10")?;
-/// let config = ScanConfig::new(targets, vec![22, 80, 443], source);
+/// let config = ScanConfig::new(targets, parse_ports("22,80,443")?, source);
 ///
 /// for result in scan(&config)? {
 ///     println!("{result:?}");
@@ -730,11 +765,13 @@ pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>, ScanError> {
 /// # Examples
 ///
 /// ```no_run
-/// use singsing_rs::{ScanConfig, interface_ipv4, parse_targets, scan_with_callback};
+/// use singsing_rs::{
+///     ScanConfig, interface_ipv4, parse_ports, parse_targets, scan_with_callback,
+/// };
 ///
 /// let source = interface_ipv4("eth0")?;
 /// let targets = parse_targets("192.168.2.10")?;
-/// let config = ScanConfig::new(targets, vec![22, 80, 443], source);
+/// let config = ScanConfig::new(targets, parse_ports("22,80,443")?, source);
 ///
 /// scan_with_callback(&config, |result| {
 ///     println!("{result:?}");
@@ -763,11 +800,13 @@ pub fn scan_with_callback(
 /// # Examples
 ///
 /// ```no_run
-/// use singsing_rs::{ScanConfig, interface_ipv4, parse_targets, scan_with_callbacks};
+/// use singsing_rs::{
+///     ScanConfig, interface_ipv4, parse_ports, parse_targets, scan_with_callbacks,
+/// };
 ///
 /// let source = interface_ipv4("eth0")?;
 /// let targets = parse_targets("192.168.2.10")?;
-/// let config = ScanConfig::new(targets, vec![22, 80, 443], source);
+/// let config = ScanConfig::new(targets, parse_ports("22,80,443")?, source);
 ///
 /// scan_with_callbacks(
 ///     &config,
@@ -933,16 +972,16 @@ fn usable_target_count(network: Ipv4Net) -> Option<usize> {
 
 /// Parses a single TCP port, rejecting port zero.
 fn parse_port(input: &str) -> Result<Port, PortsError> {
-    let port = input.parse().map_err(|source| PortsError::InvalidPort {
-        input: input.to_owned(),
-        source,
-    })?;
+    // Parse as a plain `u16` first, so that port zero gets its own `PortZero` error rather than
+    // the generic parse error `NonZeroU16`'s own `FromStr` would return.
+    let port = input
+        .parse::<u16>()
+        .map_err(|source| PortsError::InvalidPort {
+            input: input.to_owned(),
+            source,
+        })?;
 
-    if port == 0 {
-        return Err(PortsError::PortZero);
-    }
-
-    Ok(port)
+    Port::new(port).ok_or(PortsError::PortZero)
 }
 
 /// Validates a scan configuration and returns its total probe count.
@@ -988,7 +1027,8 @@ fn validate_probe_count(
     reason = "`nonce() % 16384` is always in `0..16384`, so it always fits in a `u16`"
 )]
 fn source_port() -> Port {
-    49152 + (nonce() % 16384) as u16
+    // `49152 + 16383` is exactly `u16::MAX`, so the addition never actually saturates.
+    EPHEMERAL_PORT_START.saturating_add((nonce() % 16384) as u16)
 }
 
 /// Returns a per-scan random nonce derived from the current sub-second time.
@@ -1036,7 +1076,7 @@ fn expected_responses(
 fn sequence(host: Ipv4Addr, port: Port, nonce: u32) -> SeqNum {
     u32::from(host)
         .rotate_left(13)
-        .wrapping_add(u32::from(port).rotate_left(3))
+        .wrapping_add(u32::from(port.get()).rotate_left(3))
         ^ nonce
 }
 
@@ -1073,8 +1113,8 @@ fn syn_packet(
         reason = "`bytes` is exactly `PACKET_LEN`, sized to fit one IPv4 header and one TCP header, so packet construction cannot fail"
     )]
     let mut tcp = MutableTcpPacket::new(ipv4.payload_mut()).expect("fixed-size TCP packet");
-    tcp.set_source(source_port);
-    tcp.set_destination(destination_port);
+    tcp.set_source(source_port.get());
+    tcp.set_destination(destination_port.get());
     tcp.set_sequence(sequence);
     tcp.set_data_offset(5);
     tcp.set_flags(TcpFlags::SYN);
@@ -1205,10 +1245,13 @@ fn classify_response(
     }
 
     let tcp = TcpPacket::new(ipv4.payload())?;
-    let key = (ipv4.get_source(), tcp.get_source());
+    // A reply from port zero can't correspond to any probe, so it's rejected like any other
+    // unexpected source.
+    let key = (ipv4.get_source(), Port::new(tcp.get_source())?);
     let (host, port) = key;
     let sequence = expected.get(&key)?;
-    if tcp.get_destination() != source_port || tcp.get_acknowledgement() != sequence.wrapping_add(1)
+    if tcp.get_destination() != source_port.get()
+        || tcp.get_acknowledgement() != sequence.wrapping_add(1)
     {
         return None;
     }
@@ -1252,6 +1295,16 @@ mod tests {
 
     use super::*;
 
+    /// Converts a nonzero test port number into a [`Port`].
+    fn port(number: u16) -> Port {
+        Port::new(number).unwrap()
+    }
+
+    /// Converts nonzero test port numbers into [`Port`]s.
+    fn ports(numbers: &[u16]) -> Vec<Port> {
+        numbers.iter().copied().map(port).collect()
+    }
+
     /// Builds a raw 40-byte IPv4/TCP reply packet from `remote` to `local` with the given
     /// acknowledgement number and TCP flags.
     fn response_packet(
@@ -1272,8 +1325,8 @@ mod tests {
         ipv4.set_destination(local);
 
         let mut tcp = MutableTcpPacket::new(ipv4.payload_mut()).unwrap();
-        tcp.set_source(remote_port);
-        tcp.set_destination(local_port);
+        tcp.set_source(remote_port.get());
+        tcp.set_destination(local_port.get());
         tcp.set_acknowledgement(acknowledgement);
         tcp.set_data_offset(5);
         tcp.set_flags(flags);
@@ -1314,7 +1367,7 @@ mod tests {
     fn parses_ports_ranges_and_duplicates() {
         assert_eq!(
             parse_ports("22,80,79-81").unwrap(),
-            [22, 79, 80, 81],
+            ports(&[22, 79, 80, 81]),
             "ports should be expanded, deduplicated, and sorted"
         );
     }
@@ -1483,7 +1536,7 @@ mod tests {
         let source = "192.168.2.1".parse().unwrap();
         let destination = "172.16.100.2".parse().unwrap();
         let sequence = 0x1234_5678;
-        let bytes = syn_packet(source, destination, 50000, 443, sequence);
+        let bytes = syn_packet(source, destination, port(50000), port(443), sequence);
         let ipv4 = Ipv4Packet::new(&bytes).unwrap();
         let tcp = TcpPacket::new(ipv4.payload()).unwrap();
 
@@ -1542,8 +1595,8 @@ mod tests {
     fn accepts_open_response_once() {
         let source = "192.168.2.1".parse().unwrap();
         let target = "172.16.100.2".parse().unwrap();
-        let source_port = 50000;
-        let target_port = 443;
+        let source_port = port(50000);
+        let target_port = port(443);
         let sequence = 0x1234_5678_u32;
         let expected = HashMap::from([((target, target_port), sequence)]);
         let open = ScanResult {
@@ -1592,8 +1645,8 @@ mod tests {
         let source = "192.168.2.1".parse().unwrap();
         let target = "172.16.100.2".parse().unwrap();
         let other_target = "172.16.100.3".parse().unwrap();
-        let source_port = 50000;
-        let target_port = 443;
+        let source_port = port(50000);
+        let target_port = port(443);
         let sequence = 0x1234_5678_u32;
         let expected = HashMap::from([((target, target_port), sequence)]);
         let invalid_packets = [
@@ -1624,7 +1677,7 @@ mod tests {
                 response_packet(
                     target,
                     source,
-                    80,
+                    port(80),
                     source_port,
                     sequence.wrapping_add(1),
                     TcpFlags::SYN | TcpFlags::ACK,
@@ -1636,7 +1689,7 @@ mod tests {
                     target,
                     source,
                     target_port,
-                    source_port + 1,
+                    port(50001),
                     sequence.wrapping_add(1),
                     TcpFlags::SYN | TcpFlags::ACK,
                 ),
@@ -1673,8 +1726,8 @@ mod tests {
     fn reports_closed_responses_only_when_requested() {
         let source = "192.168.2.1".parse().unwrap();
         let target = "172.16.100.2".parse().unwrap();
-        let source_port = 50000;
-        let target_port = 443;
+        let source_port = port(50000);
+        let target_port = port(443);
         let sequence = 0x1234_5678_u32;
         let expected = HashMap::from([((target, target_port), sequence)]);
         let closed_packet = response_packet(
@@ -1720,8 +1773,8 @@ mod tests {
     fn ignores_truncated_and_unexpected_responses() {
         let source = "192.168.2.1".parse().unwrap();
         let target = "172.16.100.2".parse().unwrap();
-        let source_port = 50000;
-        let target_port = 443;
+        let source_port = port(50000);
+        let target_port = port(443);
         let sequence = 0x1234_5678_u32;
         let expected = HashMap::from([((target, target_port), sequence)]);
         let mut truncated = vec![0_u8; 20];
@@ -1773,8 +1826,8 @@ mod tests {
     fn accepts_wrapped_acknowledgement_number() {
         let source = "192.168.2.1".parse().unwrap();
         let target = "172.16.100.2".parse().unwrap();
-        let source_port = 50000;
-        let target_port = 443;
+        let source_port = port(50000);
+        let target_port = port(443);
         let expected = HashMap::from([((target, target_port), u32::MAX)]);
         let response = response_packet(
             target,
@@ -1883,9 +1936,9 @@ mod tests {
     #[test]
     fn rejects_duplicate_scan_config_entries() {
         let host = "192.168.2.1".parse().unwrap();
-        let duplicate_targets = ScanConfig::new(vec![host, host], vec![443], host);
-        let duplicate_ports = ScanConfig::new(vec![host], vec![443, 443], host);
-        let unique = ScanConfig::new(vec![host], vec![80, 443], host);
+        let duplicate_targets = ScanConfig::new(vec![host, host], ports(&[443]), host);
+        let duplicate_ports = ScanConfig::new(vec![host], ports(&[443, 443]), host);
+        let unique = ScanConfig::new(vec![host], ports(&[80, 443]), host);
 
         assert!(
             expected_responses(&duplicate_targets, 1, 2)
@@ -1910,7 +1963,7 @@ mod tests {
 
     #[test]
     fn parses_tcp_services_and_ignores_other_entries() -> anyhow::Result<()> {
-        let ports = services_from(
+        let services_ports = services_from(
             "\
 # comment
 ssh             22/tcp
@@ -1924,8 +1977,8 @@ zero            0/tcp
         )?;
 
         assert_eq!(
-            ports,
-            [22, 80],
+            services_ports,
+            ports(&[22, 80]),
             "only valid, deduplicated TCP ports should be read"
         );
         Ok(())
@@ -1967,13 +2020,13 @@ zero            0/tcp
         let host = "172.16.100.2".parse().unwrap();
         let partial_result = ScanResult {
             host,
-            port: 443,
+            port: port(443),
             state: PortState::Open,
         };
         let incomplete = IncompleteScanError {
             source: SendError::Io {
                 host,
-                port: 443,
+                port: port(443),
                 source: io::Error::other("send failed"),
             },
             partial_results: vec![partial_result],

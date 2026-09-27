@@ -31,6 +31,10 @@ const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 /// Package authors.
 const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 
+/// The maximum `--timeout` in seconds, matching the library's 24-hour cap on
+/// [`ScanConfig::timeout`] so an oversized value is rejected by clap before the scan starts.
+const MAX_TIMEOUT_SECS: u64 = 24 * 60 * 60;
+
 /// IPv4 scan targets parsed from a `--host` argument.
 ///
 /// Wrapped in a newtype so clap treats a single `--host` occurrence as one parsed value rather
@@ -79,8 +83,13 @@ struct Arguments {
     /// Usable bandwidth in KiB/s.
     #[arg(short = 'b', long, default_value = "15")]
     bandwidth: NonZeroU64,
-    /// Seconds to wait for late replies.
-    #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..))]
+    /// Seconds to wait for late replies (1-86400).
+    #[arg(
+        short = 't',
+        long,
+        default_value_t = 30,
+        value_parser = clap::value_parser!(u64).range(1..=MAX_TIMEOUT_SECS)
+    )]
     timeout: u64,
     /// Stream scan results as soon as they arrive.
     #[arg(short = 'v', long)]
@@ -396,7 +405,7 @@ mod tests {
         );
         assert_eq!(
             arguments.ports,
-            Some(Ports(vec![22, 80])),
+            Some(Ports(vec!["22".parse()?, "80".parse()?])),
             "`--ports` should be parsed into ports"
         );
         assert!(arguments.closed, "`--closed` should enable closed ports");
@@ -469,6 +478,34 @@ mod tests {
     }
 
     #[test]
+    fn enforces_timeout_bounds() -> anyhow::Result<()> {
+        let parse_timeout = |timeout: &str| {
+            Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "-t", timeout])
+        };
+
+        assert_eq!(
+            parse_timeout("1")?.timeout,
+            1,
+            "the minimum timeout should be accepted"
+        );
+        assert_eq!(
+            parse_timeout("86400")?.timeout,
+            MAX_TIMEOUT_SECS,
+            "the maximum timeout should be accepted"
+        );
+        assert!(
+            parse_timeout("86401").is_err(),
+            "a timeout above the maximum should be rejected"
+        );
+        assert_eq!(
+            Duration::from_secs(MAX_TIMEOUT_SECS),
+            Duration::from_hours(24),
+            "the CLI cap should match the library's 24-hour cap"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn formats_banner_scan_and_completion_summaries() -> anyhow::Result<()> {
         let mut output = Vec::new();
         write_banner_to(&mut output)?;
@@ -502,8 +539,8 @@ mod tests {
 
     #[test]
     fn formats_empty_buffered_and_verbose_results() -> anyhow::Result<()> {
-        let open = ScanResult::new("172.16.100.2".parse()?, 443, PortState::Open);
-        let closed = ScanResult::new("172.16.100.3".parse()?, 80, PortState::Closed);
+        let open = ScanResult::new("172.16.100.2".parse()?, "443".parse()?, PortState::Open);
+        let closed = ScanResult::new("172.16.100.3".parse()?, "80".parse()?, PortState::Closed);
         let mut output = Vec::new();
         write_results_to(&mut output, &[])?;
         assert!(

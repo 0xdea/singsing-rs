@@ -6,7 +6,6 @@
     reason = "no need to have a test module for integration tests in `/tests`"
 )]
 #![expect(clippy::panic, reason = "panics are allowed in test code")]
-#![expect(clippy::unwrap_used, reason = "tests can use `unwrap`")]
 #![expect(clippy::expect_used, reason = "tests can use `expect`")]
 
 use std::net::{Ipv4Addr, TcpListener};
@@ -29,13 +28,18 @@ fn loopback_listener() -> TcpListener {
     panic!("no loopback test port available between 20000 and 29999");
 }
 
-/// Returns a loopback port that was free a moment ago and has no listener bound to it.
-fn unused_loopback_port() -> Port {
-    let listener = loopback_listener();
-    listener
+/// Returns the port a listener is bound to.
+fn listener_port(listener: &TcpListener) -> Port {
+    let port = listener
         .local_addr()
         .expect("listener should have a local address")
-        .port()
+        .port();
+    Port::new(port).expect("a bound listener's port should never be zero")
+}
+
+/// Returns a loopback port that was free a moment ago and has no listener bound to it.
+fn unused_loopback_port() -> Port {
+    listener_port(&loopback_listener())
 }
 
 /// Runs a fast, short-timeout `zucchini` loopback scan of `port` with any extra arguments.
@@ -72,7 +76,7 @@ fn stderr(output: &Output) -> &str {
 #[ignore = "requires Linux and root or CAP_NET_RAW"]
 fn scans_open_port_end_to_end() {
     let listener = loopback_listener();
-    let port = listener.local_addr().unwrap().port();
+    let port = listener_port(&listener);
     let output = run(port, &[]);
     let result = format!("open 127.0.0.1:{port}");
 
@@ -103,7 +107,7 @@ fn scans_open_port_end_to_end() {
 #[ignore = "requires Linux and root or CAP_NET_RAW"]
 fn scans_open_port_in_verbose_mode() {
     let listener = loopback_listener();
-    let port = listener.local_addr().unwrap().port();
+    let port = listener_port(&listener);
     let output = run(port, &["--verbose"]);
     let result = format!("open 127.0.0.1:{port}");
 

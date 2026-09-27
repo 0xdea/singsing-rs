@@ -8,7 +8,10 @@
 
 use std::net::Ipv4Addr;
 
-use singsing_rs::{ScanConfig, parse_targets, scan};
+use singsing_rs::{Port, ScanConfig, parse_targets, scan};
+
+/// The port used by tests that only need one.
+const HTTPS: Port = Port::new(443).unwrap();
 
 /// Parses a test IPv4 address.
 fn address(input: &str) -> Ipv4Addr {
@@ -26,7 +29,7 @@ fn scan_error(config: &ScanConfig) -> String {
 #[test]
 fn rejects_empty_scan_configuration() {
     let source = address("192.168.2.1");
-    let no_targets = ScanConfig::new(Vec::new(), vec![443], source);
+    let no_targets = ScanConfig::new(Vec::new(), vec![HTTPS], source);
     let no_ports = ScanConfig::new(vec![source], Vec::new(), source);
 
     assert!(
@@ -43,7 +46,7 @@ fn rejects_empty_scan_configuration() {
 fn rejects_excessive_scan_before_raw_socket_creation() {
     let source = address("192.168.2.1");
     let targets = vec![source; 257];
-    let ports = (1..=u16::MAX).collect();
+    let ports = (1..=u16::MAX).filter_map(Port::new).collect();
     let config = ScanConfig::new(targets, ports, source);
 
     assert!(
@@ -55,8 +58,8 @@ fn rejects_excessive_scan_before_raw_socket_creation() {
 #[test]
 fn rejects_duplicate_targets_and_ports() {
     let source = address("192.168.2.1");
-    let duplicate_targets = ScanConfig::new(vec![source, source], vec![443], source);
-    let duplicate_ports = ScanConfig::new(vec![source], vec![443, 443], source);
+    let duplicate_targets = ScanConfig::new(vec![source, source], vec![HTTPS], source);
+    let duplicate_ports = ScanConfig::new(vec![source], vec![HTTPS, HTTPS], source);
 
     assert!(
         scan_error(&duplicate_targets).contains("targets and ports must be unique"),

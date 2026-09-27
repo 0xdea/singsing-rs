@@ -103,6 +103,31 @@ fn rejects_invalid_cli() {
 }
 
 #[test]
+fn rejects_timeout_above_maximum_before_scan() {
+    let output = run(&["-h", "192.168.2.1", "-i", "lo", "-p", "80", "-t", "86401"]);
+
+    assert!(!output.status.success(), "an oversized timeout should fail");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "a usage error should exit with 2"
+    );
+    assert!(stdout(&output).is_empty(), "stdout should be empty");
+    assert!(
+        stderr(&output).contains("invalid value '86401' for '--timeout <TIMEOUT>'"),
+        "an oversized timeout should be reported as an invalid value"
+    );
+    assert!(
+        stderr(&output).contains("1..=86400"),
+        "the error should state the accepted range"
+    );
+    assert!(
+        !stderr(&output).contains("Scanning:"),
+        "an oversized timeout should be rejected before the scan summary"
+    );
+}
+
+#[test]
 fn reports_invalid_targets_and_ports() {
     let target = run(&["-h", "not-an-address", "-i", "lo", "-p", "80"]);
     assert!(!target.status.success(), "an invalid target should fail");

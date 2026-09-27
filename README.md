@@ -166,6 +166,12 @@ The default bandwidth is 15 KiB/s. With the Rust scanner's 40-byte IPv4/TCP head
 
 Unlike the original `singsing`, this implementation does not send calibration traffic: instead, it schedules each probe against an absolute deadline. This approach is smoother and automatically accounts for ordinary send overhead, and the same bandwidth value permits about 45% more SYNs per second than the original 58-byte calculation.
 
+### Late-reply timeout
+
+After the final probe is sent, the scanner keeps listening for late replies for 30 seconds by default. Override it with `-t`/`--timeout`, which accepts between 1 and 86,400 seconds (24 hours).
+
+Library callers set `ScanConfig::timeout` directly. It is capped at the same 24 hours, and a larger value is rejected with `ScanError::TimeoutTooLarge` before any packet is sent. The cap guarantees the receiver's deadline can always be computed without overflowing. Unlike `zucchini`, the library also accepts a zero timeout: replies that arrive while probes are still being sent are collected as usual, but listening stops as soon as the final probe is sent.
+
 ### Transmission order
 
 The original `zucca` used a deterministic target traversal. This implementation, instead, stores exact host/port pairs in a randomly seeded `HashMap` and sends them in an unspecified iteration order. Consequently, hosts and ports are interleaved differently between runs rather than following a predictable sequence. This improves scan stealthiness by avoiding an obvious sequential pattern.
