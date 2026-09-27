@@ -161,3 +161,29 @@ fn waits_for_post_transmission_timeout() {
         "the scan should not wait much longer than the timeout, but took {elapsed:?}"
     );
 }
+
+#[test]
+#[ignore = "requires Linux and root or CAP_NET_RAW"]
+fn zero_timeout_returns_promptly() {
+    let listener = loopback_listener();
+    let port = listener_port(&listener);
+    let mut config = scan_config(vec![port], false);
+    config.timeout = Duration::ZERO;
+    let started = Instant::now();
+
+    let results = scan(&config).unwrap();
+    let elapsed = started.elapsed();
+
+    // Whether the loopback SYN/ACK is read before the receiver notices sending is done is a race,
+    // so the open port may or may not be reported; the scan must just not hang or misreport.
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "a zero-timeout scan should stop shortly after sending, but took {elapsed:?}"
+    );
+    assert!(
+        results
+            .iter()
+            .all(|result| *result == ScanResult::new(Ipv4Addr::LOCALHOST, port, PortState::Open)),
+        "a zero-timeout scan should only report the open port, but reported {results:?}"
+    );
+}

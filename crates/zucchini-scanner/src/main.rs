@@ -332,6 +332,7 @@ where
 #[expect(clippy::panic_in_result_fn, reason = "panics are allowed in test code")]
 #[expect(clippy::unwrap_used, reason = "tests can use `unwrap`")]
 mod tests {
+    use clap::CommandFactory as _;
     use clap::error::ErrorKind;
 
     use super::*;
@@ -501,6 +502,13 @@ mod tests {
             Duration::from_secs(MAX_TIMEOUT_SECS),
             Duration::from_hours(24),
             "the CLI cap should match the library's 24-hour cap"
+        );
+        assert!(
+            Arguments::command()
+                .render_help()
+                .to_string()
+                .contains(&format!("(1-{MAX_TIMEOUT_SECS})")),
+            "the `--timeout` help text should state the enforced range"
         );
         Ok(())
     }

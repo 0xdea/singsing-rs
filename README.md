@@ -170,7 +170,7 @@ Unlike the original `singsing`, this implementation does not send calibration tr
 
 After the final probe is sent, the scanner keeps listening for late replies for 30 seconds by default. Override it with `-t`/`--timeout`, which accepts between 1 and 86,400 seconds (24 hours).
 
-Library callers set `ScanConfig::timeout` directly. It is capped at the same 24 hours, and a larger value is rejected with `ScanError::TimeoutTooLarge` before any packet is sent. The cap guarantees the receiver's deadline can always be computed without overflowing. Unlike `zucchini`, the library also accepts a zero timeout: replies that arrive while probes are still being sent are collected as usual, but listening stops as soon as the final probe is sent.
+Library callers set `ScanConfig::timeout` directly. It is capped at the same 24 hours, and a larger value is rejected with `ScanError::TimeoutTooLarge` before any packet is sent. The cap guarantees the receiver's deadline can always be computed without overflowing. Unlike `zucchini`, the library also accepts a zero timeout: replies already received while probes are still being sent are collected as usual, but listening stops shortly after the final probe is sent, and any reply not yet read by then is dropped.
 
 ### Transmission order
 

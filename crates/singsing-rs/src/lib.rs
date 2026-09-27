@@ -46,6 +46,10 @@ const PACKET_LEN: usize = 40;
 /// probes and replies: a too-small buffer silently truncates an oversized read rather than
 /// erroring. `1 MiB` comfortably exceeds the largest possible IPv4 packet (65,535 bytes).
 const RECEIVE_BUFFER_LEN: usize = 1 << 20;
+/// The longest the receiver blocks on one read before re-checking whether sending is done.
+const RECEIVE_POLL_INTERVAL: Duration = Duration::from_millis(100);
+/// The shortest read timeout the receiver can safely request (see `receive_wait`).
+const MIN_RECEIVE_WAIT: Duration = Duration::from_micros(1);
 
 /// The maximum number of probes to send during a scan.
 const MAX_PROBES: usize = 16_777_214;
@@ -398,9 +402,9 @@ pub struct ScanConfig {
     /// Time to listen for late replies after the final probe.
     ///
     /// Capped at 24 hours: a larger value is rejected with [`ScanError::TimeoutTooLarge`] before
-    /// any packet is sent. Zero is allowed, and stops listening as soon as the final probe is sent
-    /// (replies that arrived while sending are still returned). [`ScanConfig::new`] defaults this
-    /// to 30 seconds.
+    /// any packet is sent. Zero is allowed, and stops listening shortly after the final probe is
+    /// sent: replies already received while sending are returned, but a reply still unread when
+    /// listening stops is dropped. [`ScanConfig::new`] defaults this to 30 seconds.
     pub timeout: Duration,
     /// Whether RST responses should be returned.
     pub show_closed: bool,
@@ -1178,19 +1182,13 @@ fn receive(
 
     loop {
         // Check the done flag and set the deadline only once.
-        if config.done.load(Ordering::Acquire) && deadline.is_none() {
+        if deadline.is_none() && config.done.load(Ordering::Acquire) {
             deadline = Some(Instant::now() + config.timeout);
         }
-        // Break the loop if the deadline has passed.
-        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        // Break the loop once the deadline has (effectively) passed.
+        let Some(wait) = receive_wait(deadline, Instant::now()) else {
             break;
-        }
-
-        // Calculate the wait duration based on the deadline (capped at 100ms).
-        let wait = deadline
-            .and_then(|deadline| deadline.checked_duration_since(Instant::now()))
-            .unwrap_or(Duration::from_millis(100))
-            .min(Duration::from_millis(100));
+        };
 
         // Try to read a packet, blocking for at most `wait`.
         //
@@ -1225,6 +1223,23 @@ fn receive(
     }
 
     Ok(results)
+}
+
+/// Returns how long the next packet read may block, or `None` once the late-reply `deadline` has
+/// effectively passed.
+///
+/// Before sending is done (no `deadline` yet), reads block for [`RECEIVE_POLL_INTERVAL`] so the
+/// done flag keeps getting re-checked; afterwards, for whatever remains until the deadline, capped
+/// at the same interval. A remaining time below [`MIN_RECEIVE_WAIT`] counts as the deadline having
+/// passed: `pnet` applies the wait as `SO_RCVTIMEO`, truncated to whole microseconds, and a zero
+/// `SO_RCVTIMEO` makes the read block indefinitely instead of returning immediately.
+fn receive_wait(deadline: Option<Instant>, now: Instant) -> Option<Duration> {
+    let Some(deadline) = deadline else {
+        return Some(RECEIVE_POLL_INTERVAL);
+    };
+    let remaining = deadline.saturating_duration_since(now);
+
+    (remaining >= MIN_RECEIVE_WAIT).then_some(remaining.min(RECEIVE_POLL_INTERVAL))
 }
 
 /// Correlates one received IPv4 packet against the expected-response table.
@@ -1819,6 +1834,95 @@ mod tests {
         assert!(
             classify_packet(&valid, &expected, source, source_port, false, &mut seen).is_some(),
             "ignored packets should not mark the host/port pair as seen"
+        );
+    }
+
+    #[test]
+    fn ignores_response_from_port_zero() {
+        let source = "192.168.2.1".parse().unwrap();
+        let target = "172.16.100.2".parse().unwrap();
+        let source_port = port(50000);
+        let target_port = port(443);
+        let sequence = 0x1234_5678_u32;
+        let expected = HashMap::from([((target, target_port), sequence)]);
+        let mut packet = response_packet(
+            target,
+            source,
+            target_port,
+            source_port,
+            sequence.wrapping_add(1),
+            TcpFlags::SYN | TcpFlags::ACK,
+        );
+        assert!(
+            classify_packet(
+                &packet,
+                &expected,
+                source,
+                source_port,
+                false,
+                &mut HashSet::new()
+            )
+            .is_some(),
+            "the unmodified response should be accepted"
+        );
+
+        let mut ipv4 = MutableIpv4Packet::new(&mut packet).unwrap();
+        MutableTcpPacket::new(ipv4.payload_mut())
+            .unwrap()
+            .set_source(0);
+
+        assert_eq!(
+            classify_packet(
+                &packet,
+                &expected,
+                source,
+                source_port,
+                false,
+                &mut HashSet::new()
+            ),
+            None,
+            "a response from port zero should be ignored"
+        );
+    }
+
+    #[test]
+    fn computes_receive_wait() {
+        let now = Instant::now();
+
+        assert_eq!(
+            receive_wait(None, now),
+            Some(RECEIVE_POLL_INTERVAL),
+            "before sending is done, reads should block for one poll interval"
+        );
+        assert_eq!(
+            receive_wait(Some(now + Duration::from_secs(30)), now),
+            Some(RECEIVE_POLL_INTERVAL),
+            "a distant deadline should be capped at one poll interval"
+        );
+        assert_eq!(
+            receive_wait(Some(now + Duration::from_millis(50)), now),
+            Some(Duration::from_millis(50)),
+            "a near deadline should shorten the wait to the time remaining"
+        );
+        assert_eq!(
+            receive_wait(Some(now + MIN_RECEIVE_WAIT), now),
+            Some(MIN_RECEIVE_WAIT),
+            "the minimum wait should still be requested"
+        );
+        assert_eq!(
+            receive_wait(Some(now + Duration::from_nanos(500)), now),
+            None,
+            "a sub-microsecond wait would truncate to a blocking zero timeout, so it should stop"
+        );
+        assert_eq!(
+            receive_wait(Some(now), now),
+            None,
+            "a deadline that is reached should stop receiving"
+        );
+        assert_eq!(
+            receive_wait(Some(now), now + Duration::from_secs(1)),
+            None,
+            "a deadline that has passed should stop receiving"
         );
     }
 

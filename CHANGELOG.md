@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improve code style.
 - Update dependencies.
 
+### Fixed
+
+- Fix a rare receiver hang when a packet was read less than a microsecond before the late-reply deadline.
+
 ### Removed
 
 - Remove `ScanError::ZeroBandwidth`, which can no longer occur (breaking).

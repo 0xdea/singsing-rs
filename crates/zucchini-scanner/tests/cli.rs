@@ -128,6 +128,44 @@ fn rejects_timeout_above_maximum_before_scan() {
 }
 
 #[test]
+fn accepts_maximum_timeout_in_library_validation() {
+    // The library checks the timeout before the probe count, so an oversized scan failing on the
+    // probe limit (rather than the timeout) proves the CLI's maximum passes the library's own
+    // check. It also fails before raw socket creation, so it can't start a real 24-hour scan
+    // even when the tests run as root.
+    let output = run(&[
+        "-h",
+        "192.168.2.0/23",
+        "-i",
+        "lo",
+        "-p",
+        "1-65535",
+        "-t",
+        "86400",
+    ]);
+
+    assert!(!output.status.success(), "an oversized scan should fail");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a library validation error should exit with 1, not a usage error"
+    );
+    assert!(
+        stderr(&output).contains("maximum is 16777214"),
+        "the scan should fail on the probe limit, stderr was: {}",
+        stderr(&output)
+    );
+    assert!(
+        !stderr(&output).contains("exceeds the maximum of"),
+        "the maximum CLI timeout should pass the library's timeout check"
+    );
+    assert!(
+        !stderr(&output).contains("failed to create raw socket"),
+        "the scan should be rejected before raw socket creation"
+    );
+}
+
+#[test]
 fn reports_invalid_targets_and_ports() {
     let target = run(&["-h", "not-an-address", "-i", "lo", "-p", "80"]);
     assert!(!target.status.success(), "an invalid target should fail");
