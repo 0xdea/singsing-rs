@@ -19,7 +19,7 @@ use std::any::Any;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr};
-use std::num::ParseIntError;
+use std::num::{NonZeroU64, ParseIntError};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -52,6 +52,9 @@ const MAX_PROBES: usize = 16_777_214;
 /// The maximum time to listen for late replies after the final probe.
 const MAX_TIMEOUT: Duration = Duration::from_hours(24);
 
+/// The default packet bandwidth in KiB/s, used by [`ScanConfig::new`].
+const DEFAULT_BANDWIDTH_KIB: NonZeroU64 = NonZeroU64::new(15).unwrap();
+
 /// One minute duration.
 const ONE_MINUTE: Duration = Duration::from_mins(1);
 /// Ten minute duration.
@@ -68,7 +71,7 @@ type SeqNum = u32;
 /// Maps each target host/port pair to its expected TCP sequence number.
 type ExpectedResponses = HashMap<(Ipv4Addr, Port), SeqNum>;
 
-/// The error type returned by `scan`/`scan_with_callback`/`scan_with_callbacks`'s `on_result` and
+/// The error type returned by [`scan_with_callback`]/[`scan_with_callbacks`]'s `on_result` and
 /// `on_progress` callbacks.
 ///
 /// Callbacks are caller-defined and can fail for reasons this crate can't enumerate in advance, so
@@ -90,7 +93,7 @@ pub use ipnet::{AddrParseError, Ipv4Net};
 ///
 /// let name = "singsing-rs-example-missing-interface";
 /// match interface_ipv4(name) {
-///     Err(InterfaceError::NotFound { name: n }) => assert_eq!(n, name),
+///     Err(InterfaceError::NotFound { name: actual }) => assert_eq!(actual, name),
 ///     other => panic!("unexpected result: {other:?}"),
 /// }
 /// ```
@@ -218,9 +221,6 @@ pub enum ScanError {
     /// The scan had no targets or no ports.
     #[error("at least one target and one port are required")]
     EmptyScan,
-    /// The configured bandwidth was zero.
-    #[error("bandwidth must be greater than zero")]
-    ZeroBandwidth,
     /// The configured bandwidth overflowed while converting to a packet rate.
     #[error("bandwidth is too large")]
     BandwidthOverflow,
@@ -246,7 +246,7 @@ pub enum ScanError {
         /// The maximum allowed probe count.
         max: usize,
     },
-    /// `ScanConfig` contained a duplicate target/port pair.
+    /// [`ScanConfig`] contained a duplicate target/port pair.
     #[error("duplicate host/port pair {host}:{port}; ScanConfig targets and ports must be unique")]
     DuplicatePair {
         /// The duplicated target.
@@ -369,7 +369,7 @@ pub struct ScanConfig {
     ///
     /// [`ScanConfig::new`] defaults this to 15 KiB/s, or approximately 384 probes per second
     /// with the scanner's 40-byte packet accounting.
-    pub bandwidth_kib: u64,
+    pub bandwidth_kib: NonZeroU64,
     /// Time to listen for late replies after the final probe.
     ///
     /// Capped at 24 hours; [`ScanConfig::new`] defaults this to 30 seconds.
@@ -391,7 +391,7 @@ impl ScanConfig {
     /// let mut config = ScanConfig::new(vec![target], vec![22, 80, 443], Ipv4Addr::LOCALHOST);
     /// config.show_closed = true;
     ///
-    /// assert_eq!(config.bandwidth_kib, 15);
+    /// assert_eq!(config.bandwidth_kib.get(), 15);
     /// assert!(config.show_closed);
     /// # Ok::<(), std::net::AddrParseError>(())
     /// ```
@@ -401,7 +401,7 @@ impl ScanConfig {
             targets,
             ports,
             source,
-            bandwidth_kib: 15,
+            bandwidth_kib: DEFAULT_BANDWIDTH_KIB,
             timeout: Duration::from_secs(30),
             show_closed: false,
         }
@@ -654,11 +654,11 @@ pub fn parse_ports(input: &str) -> Result<Vec<Port>, PortsError> {
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<Port>, PortsError> {
-    let contents =
-        fs::read_to_string(path.as_ref()).map_err(|source| PortsError::ServicesFileRead {
-            path: path.as_ref().to_path_buf(),
-            source,
-        })?;
+    let path = path.as_ref();
+    let contents = fs::read_to_string(path).map_err(|source| PortsError::ServicesFileRead {
+        path: path.to_path_buf(),
+        source,
+    })?;
     let mut ports = BTreeSet::new();
 
     for line in contents.lines() {
@@ -681,7 +681,7 @@ pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<Port>, PortsErr
 
     if ports.is_empty() {
         return Err(PortsError::NoTcpServices {
-            path: path.as_ref().to_path_buf(),
+            path: path.to_path_buf(),
         });
     }
 
@@ -826,6 +826,7 @@ pub fn scan_with_callbacks(
     // or incorrect behavior, so no cap is needed.
     let bytes_per_second = config
         .bandwidth_kib
+        .get()
         .checked_mul(1024)
         .ok_or(ScanError::BandwidthOverflow)?;
     let packets_per_second = (bytes_per_second / 40).max(1);
@@ -839,7 +840,7 @@ pub fn scan_with_callbacks(
     let mut next_send = Instant::now();
     let started = next_send;
     let mut next_progress = ONE_MINUTE;
-    let mut probes_sent = 0;
+    let mut probes_sent = 0_usize;
     let send_result = (|| -> Result<(), SendError> {
         #[expect(
             clippy::iter_over_hash_type,
@@ -857,7 +858,7 @@ pub fn scan_with_callbacks(
                     port,
                     source: io_error,
                 })?;
-            probes_sent += 1;
+            probes_sent = probes_sent.saturating_add(1);
 
             // Throttle the send loop to the requested bandwidth.
             next_send += interval;
@@ -901,7 +902,7 @@ pub fn scan_with_callbacks(
     })??;
 
     // Sort the results by host and port.
-    results.sort_unstable_by_key(|result| (u32::from(result.host), result.port));
+    results.sort_unstable_by_key(|result| (result.host, result.port));
 
     // If the send loop failed mid-scan, return an `IncompleteScanError` with the collected results.
     if let Err(error) = send_result {
@@ -946,29 +947,20 @@ fn parse_port(input: &str) -> Result<Port, PortsError> {
 
 /// Validates a scan configuration and returns its total probe count.
 fn validate_scan(config: &ScanConfig) -> Result<usize, ScanError> {
-    validate_probe_count(
-        config.targets.len(),
-        config.ports.len(),
-        config.bandwidth_kib,
-        config.timeout,
-    )
+    validate_probe_count(config.targets.len(), config.ports.len(), config.timeout)
 }
 
 /// Validates scan size and configuration limits, returning the total probe count.
 ///
-/// Rejects an empty target or port list, zero bandwidth, a late-reply timeout above
-/// [`MAX_TIMEOUT`], and a target * port product above [`MAX_PROBES`].
+/// Rejects an empty target or port list, a late-reply timeout above [`MAX_TIMEOUT`], and a
+/// target * port product above [`MAX_PROBES`].
 fn validate_probe_count(
     target_count: usize,
     port_count: usize,
-    bandwidth_kib: u64,
     timeout: Duration,
 ) -> Result<usize, ScanError> {
     if target_count == 0 || port_count == 0 {
         return Err(ScanError::EmptyScan);
-    }
-    if bandwidth_kib == 0 {
-        return Err(ScanError::ZeroBandwidth);
     }
     if timeout > MAX_TIMEOUT {
         return Err(ScanError::TimeoutTooLarge {
@@ -1003,6 +995,8 @@ fn source_port() -> Port {
 ///
 /// This nonce is not cryptographically robust, but it is sufficient for our purposes.
 fn nonce() -> u32 {
+    // A system clock set before the Unix epoch is deliberately ignored: it only makes the nonce
+    // predictable (zero), which correlation tolerates, so it isn't worth failing the scan over.
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -1116,13 +1110,13 @@ fn next_progress_deadline(previous: Duration) -> Duration {
 
 /// Configuration for receiving packets.
 struct ReceiveConfig<'a> {
-    /// Map of expected (source, port) pairs to sequence numbers.
+    /// Map of probed target host/port pairs to their expected sequence numbers.
     expected: &'a ExpectedResponses,
-    /// Source IP address to filter packets by.
+    /// The scan's source address, which replies must be destined to.
     source: Ipv4Addr,
-    /// Source port to filter packets by.
+    /// The scan's source port, which replies must be destined to.
     source_port: Port,
-    /// Whether to show closed connections.
+    /// Whether RST responses should be reported as closed ports.
     show_closed: bool,
     /// Atomic flag indicating when to stop receiving.
     done: &'a AtomicBool,
@@ -1251,7 +1245,6 @@ fn describe_panic_payload(payload: &(dyn Any + Send)) -> &str {
 #[cfg(test)]
 #[expect(clippy::panic_in_result_fn, reason = "panics are allowed in test code")]
 #[expect(clippy::unwrap_used, reason = "tests can use `unwrap`")]
-#[expect(clippy::min_ident_chars, reason = "tests can use short idents")]
 mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::AtomicUsize;
@@ -1259,6 +1252,8 @@ mod tests {
 
     use super::*;
 
+    /// Builds a raw 40-byte IPv4/TCP reply packet from `remote` to `local` with the given
+    /// acknowledgement number and TCP flags.
     fn response_packet(
         remote: Ipv4Addr,
         local: Ipv4Addr,
@@ -1285,6 +1280,7 @@ mod tests {
         bytes
     }
 
+    /// Parses raw `bytes` as an IPv4 packet and classifies it with [`classify_response`].
     fn classify_packet(
         bytes: &[u8],
         expected: &ExpectedResponses,
@@ -1297,6 +1293,7 @@ mod tests {
         classify_response(&ipv4, expected, source, source_port, show_closed, seen)
     }
 
+    /// Returns a unique temporary services file path, scoped by process ID and a per-test counter.
     fn services_path() -> PathBuf {
         static NEXT_FILE: AtomicUsize = AtomicUsize::new(0);
 
@@ -1304,7 +1301,8 @@ mod tests {
         env::temp_dir().join(format!("singsing-rs-services-{}-{number}", process::id()))
     }
 
-    fn services_from(contents: &str) -> anyhow::Result<Vec<u16>> {
+    /// Writes `contents` to a temporary services file, reads its TCP ports, and removes the file.
+    fn services_from(contents: &str) -> anyhow::Result<Vec<Port>> {
         let path = services_path();
         fs::write(&path, contents)?;
         let result = ports_from_services(&path).map_err(anyhow::Error::from);
@@ -1314,53 +1312,76 @@ mod tests {
 
     #[test]
     fn parses_ports_ranges_and_duplicates() {
-        assert_eq!(parse_ports("22,80,79-81").unwrap(), [22, 79, 80, 81]);
+        assert_eq!(
+            parse_ports("22,80,79-81").unwrap(),
+            [22, 79, 80, 81],
+            "ports should be expanded, deduplicated, and sorted"
+        );
     }
 
     #[test]
     fn rejects_invalid_ports() {
-        assert!(matches!(parse_ports("0"), Err(PortsError::PortZero)));
-        assert!(matches!(
-            parse_ports("80-79"),
-            Err(PortsError::ReversedRange { item }) if item == "80-79"
-        ));
-        assert!(matches!(
-            parse_ports("65536"),
-            Err(PortsError::InvalidPort { input, .. }) if input == "65536"
-        ));
-        assert!(matches!(
-            parse_ports("22,"),
-            Err(PortsError::EmptyItem { input }) if input == "22,"
-        ));
-        assert!(matches!(
-            parse_ports("1-2-3"),
-            Err(PortsError::InvalidRange { item }) if item == "1-2-3"
-        ));
+        assert!(
+            matches!(parse_ports("0"), Err(PortsError::PortZero)),
+            "port zero should be rejected"
+        );
+        assert!(
+            matches!(
+                parse_ports("80-79"),
+                Err(PortsError::ReversedRange { item }) if item == "80-79"
+            ),
+            "a reversed range should be rejected"
+        );
+        assert!(
+            matches!(
+                parse_ports("65536"),
+                Err(PortsError::InvalidPort { input, .. }) if input == "65536"
+            ),
+            "a port above 65535 should be rejected"
+        );
+        assert!(
+            matches!(
+                parse_ports("22,"),
+                Err(PortsError::EmptyItem { input }) if input == "22,"
+            ),
+            "an empty list item should be rejected"
+        );
+        assert!(
+            matches!(
+                parse_ports("1-2-3"),
+                Err(PortsError::InvalidRange { item }) if item == "1-2-3"
+            ),
+            "a range with more than one `-` should be rejected"
+        );
     }
 
     #[test]
     fn parses_host_and_network() {
         assert_eq!(
             parse_targets("192.168.2.9").unwrap(),
-            ["192.168.2.9".parse::<Ipv4Addr>().unwrap()]
+            ["192.168.2.9".parse::<Ipv4Addr>().unwrap()],
+            "a bare address should yield itself"
         );
         assert_eq!(
             parse_targets("192.168.2.0/30").unwrap(),
             [
                 "192.168.2.1".parse::<Ipv4Addr>().unwrap(),
                 "192.168.2.2".parse::<Ipv4Addr>().unwrap()
-            ]
+            ],
+            "a /30 should exclude its network and broadcast addresses"
         );
         assert_eq!(
             parse_targets("192.168.2.0/31").unwrap(),
             [
                 "192.168.2.0".parse::<Ipv4Addr>().unwrap(),
                 "192.168.2.1".parse::<Ipv4Addr>().unwrap()
-            ]
+            ],
+            "a /31 should include both addresses"
         );
         assert_eq!(
             parse_targets("192.168.2.7/32").unwrap(),
-            ["192.168.2.7".parse::<Ipv4Addr>().unwrap()]
+            ["192.168.2.7".parse::<Ipv4Addr>().unwrap()],
+            "a /32 should yield its single address"
         );
     }
 
@@ -1371,20 +1392,27 @@ mod tests {
             [
                 "192.168.2.5".parse::<Ipv4Addr>().unwrap(),
                 "192.168.2.6".parse::<Ipv4Addr>().unwrap()
-            ]
+            ],
+            "host bits in a CIDR should be normalized to its network"
         );
-        assert!(matches!(
-            parse_targets(""),
-            Err(TargetsError::InvalidAddress(_))
-        ));
-        assert!(matches!(
-            parse_targets("not-an-address"),
-            Err(TargetsError::InvalidAddress(_))
-        ));
-        assert!(matches!(
-            parse_targets("192.168.2.1/33"),
-            Err(TargetsError::InvalidNetwork(_))
-        ));
+        assert!(
+            matches!(parse_targets(""), Err(TargetsError::InvalidAddress(_))),
+            "an empty target should be rejected as an invalid address"
+        );
+        assert!(
+            matches!(
+                parse_targets("not-an-address"),
+                Err(TargetsError::InvalidAddress(_))
+            ),
+            "a non-address target should be rejected as an invalid address"
+        );
+        assert!(
+            matches!(
+                parse_targets("192.168.2.1/33"),
+                Err(TargetsError::InvalidNetwork(_))
+            ),
+            "a prefix longer than /32 should be rejected as an invalid network"
+        );
     }
 
     #[test]
@@ -1393,32 +1421,57 @@ mod tests {
         let slash_31 = "192.168.2.0/31".parse::<Ipv4Net>().unwrap();
         let slash_32 = "192.168.2.1/32".parse::<Ipv4Net>().unwrap();
 
-        assert_eq!(usable_target_count(slash_8), Some(MAX_PROBES));
-        assert_eq!(usable_target_count(slash_31), Some(2));
-        assert_eq!(usable_target_count(slash_32), Some(1));
-        assert!(matches!(
-            parse_targets("10.0.0.0/7"),
-            Err(TargetsError::TooLarge { max, .. }) if max == MAX_PROBES
-        ));
-        assert!(matches!(
-            parse_targets("0.0.0.0/0"),
-            Err(TargetsError::TooLarge { max, .. }) if max == MAX_PROBES
-        ));
+        assert_eq!(
+            usable_target_count(slash_8),
+            Some(MAX_PROBES),
+            "a /8 should have exactly `MAX_PROBES` usable addresses"
+        );
+        assert_eq!(
+            usable_target_count(slash_31),
+            Some(2),
+            "a /31 should have two usable addresses"
+        );
+        assert_eq!(
+            usable_target_count(slash_32),
+            Some(1),
+            "a /32 should have one usable address"
+        );
+        assert!(
+            matches!(
+                parse_targets("10.0.0.0/7"),
+                Err(TargetsError::TooLarge { max, .. }) if max == MAX_PROBES
+            ),
+            "a /7 should exceed the target limit"
+        );
+        assert!(
+            matches!(
+                parse_targets("0.0.0.0/0"),
+                Err(TargetsError::TooLarge { max, .. }) if max == MAX_PROBES
+            ),
+            "a /0 should exceed the target limit"
+        );
     }
 
     #[test]
     fn resolves_loopback_interface_address() {
-        assert_eq!(interface_ipv4("lo").unwrap(), Ipv4Addr::LOCALHOST);
+        assert_eq!(
+            interface_ipv4("lo").unwrap(),
+            Ipv4Addr::LOCALHOST,
+            "`lo` should resolve to 127.0.0.1"
+        );
     }
 
     #[test]
     fn rejects_unknown_interface() {
         let name = "singsing-rs-interface-does-not-exist";
 
-        assert!(matches!(
-            interface_ipv4(name),
-            Err(InterfaceError::NotFound { name: n }) if n == name
-        ));
+        assert!(
+            matches!(
+                interface_ipv4(name),
+                Err(InterfaceError::NotFound { name: actual }) if actual == name
+            ),
+            "an unknown interface should be reported as not found, by name"
+        );
     }
 
     #[test]
@@ -1434,37 +1487,55 @@ mod tests {
         let ipv4 = Ipv4Packet::new(&bytes).unwrap();
         let tcp = TcpPacket::new(ipv4.payload()).unwrap();
 
-        assert_eq!(bytes.len(), PACKET_LEN);
-        assert_eq!(ipv4.get_version(), 4);
-        assert_eq!(ipv4.get_header_length(), 5);
-        assert_eq!(ipv4.get_total_length(), 40);
-        assert_eq!(ipv4.get_identification(), (sequence >> 16) as u16);
-        assert_eq!(ipv4.get_ttl(), 64);
-        assert_eq!(ipv4.get_next_level_protocol(), IpNextHeaderProtocols::Tcp);
-        assert_eq!(ipv4.get_source(), source);
-        assert_eq!(ipv4.get_destination(), destination);
+        assert_eq!(bytes.len(), PACKET_LEN, "packet length");
+        assert_eq!(ipv4.get_version(), 4, "IP version");
+        assert_eq!(ipv4.get_header_length(), 5, "IP header length");
+        assert_eq!(ipv4.get_total_length(), 40, "IP total length");
+        assert_eq!(
+            ipv4.get_identification(),
+            (sequence >> 16) as u16,
+            "IP identification should be the sequence's top 16 bits"
+        );
+        assert_eq!(ipv4.get_ttl(), 64, "IP TTL");
+        assert_eq!(
+            ipv4.get_next_level_protocol(),
+            IpNextHeaderProtocols::Tcp,
+            "IP protocol"
+        );
+        assert_eq!(ipv4.get_source(), source, "IP source address");
+        assert_eq!(
+            ipv4.get_destination(),
+            destination,
+            "IP destination address"
+        );
         let mut ip_for_checksum = MutableIpv4Packet::owned(bytes.clone()).unwrap();
         ip_for_checksum.set_checksum(0);
         assert_eq!(
             ipv4.get_checksum(),
-            checksum(&ip_for_checksum.to_immutable())
+            checksum(&ip_for_checksum.to_immutable()),
+            "IP header checksum"
         );
         let mut tcp_for_checksum = MutableTcpPacket::owned(tcp.packet().to_vec()).unwrap();
         tcp_for_checksum.set_checksum(0);
         assert_eq!(
             tcp.get_checksum(),
-            ipv4_checksum(&tcp_for_checksum.to_immutable(), &source, &destination)
+            ipv4_checksum(&tcp_for_checksum.to_immutable(), &source, &destination),
+            "TCP checksum"
         );
-        assert_eq!(tcp.packet().len(), 20);
-        assert!(tcp.payload().is_empty());
-        assert_eq!(tcp.get_source(), 50000);
-        assert_eq!(tcp.get_destination(), 443);
-        assert_eq!(tcp.get_sequence(), sequence);
-        assert_eq!(tcp.get_acknowledgement(), 0);
-        assert_eq!(tcp.get_data_offset(), 5);
-        assert_eq!(tcp.get_flags(), TcpFlags::SYN);
-        assert_eq!(tcp.get_window(), 64240);
-        assert_eq!(tcp.get_urgent_ptr(), 0);
+        assert_eq!(tcp.packet().len(), 20, "TCP header length");
+        assert!(tcp.payload().is_empty(), "TCP payload should be empty");
+        assert_eq!(tcp.get_source(), 50000, "TCP source port");
+        assert_eq!(tcp.get_destination(), 443, "TCP destination port");
+        assert_eq!(tcp.get_sequence(), sequence, "TCP sequence number");
+        assert_eq!(tcp.get_acknowledgement(), 0, "TCP acknowledgement number");
+        assert_eq!(tcp.get_data_offset(), 5, "TCP data offset");
+        assert_eq!(
+            tcp.get_flags(),
+            TcpFlags::SYN,
+            "TCP flags should be SYN only"
+        );
+        assert_eq!(tcp.get_window(), 64240, "TCP window");
+        assert_eq!(tcp.get_urgent_ptr(), 0, "TCP urgent pointer");
     }
 
     #[test]
@@ -1499,7 +1570,8 @@ mod tests {
                 false,
                 &mut seen
             ),
-            Some(open)
+            Some(open),
+            "a correlated SYN/ACK should be reported as open"
         );
         assert_eq!(
             classify_packet(
@@ -1510,7 +1582,8 @@ mod tests {
                 false,
                 &mut seen
             ),
-            None
+            None,
+            "a duplicate SYN/ACK should be suppressed"
         );
     }
 
@@ -1524,48 +1597,63 @@ mod tests {
         let sequence = 0x1234_5678_u32;
         let expected = HashMap::from([((target, target_port), sequence)]);
         let invalid_packets = [
-            response_packet(
-                target,
-                "192.168.2.2".parse().unwrap(),
-                target_port,
-                source_port,
-                sequence.wrapping_add(1),
-                TcpFlags::SYN | TcpFlags::ACK,
+            (
+                "wrong destination address",
+                response_packet(
+                    target,
+                    "192.168.2.2".parse().unwrap(),
+                    target_port,
+                    source_port,
+                    sequence.wrapping_add(1),
+                    TcpFlags::SYN | TcpFlags::ACK,
+                ),
             ),
-            response_packet(
-                other_target,
-                source,
-                target_port,
-                source_port,
-                sequence.wrapping_add(1),
-                TcpFlags::SYN | TcpFlags::ACK,
+            (
+                "unprobed source host",
+                response_packet(
+                    other_target,
+                    source,
+                    target_port,
+                    source_port,
+                    sequence.wrapping_add(1),
+                    TcpFlags::SYN | TcpFlags::ACK,
+                ),
             ),
-            response_packet(
-                target,
-                source,
-                80,
-                source_port,
-                sequence.wrapping_add(1),
-                TcpFlags::SYN | TcpFlags::ACK,
+            (
+                "unprobed source port",
+                response_packet(
+                    target,
+                    source,
+                    80,
+                    source_port,
+                    sequence.wrapping_add(1),
+                    TcpFlags::SYN | TcpFlags::ACK,
+                ),
             ),
-            response_packet(
-                target,
-                source,
-                target_port,
-                source_port + 1,
-                sequence.wrapping_add(1),
-                TcpFlags::SYN | TcpFlags::ACK,
+            (
+                "wrong destination port",
+                response_packet(
+                    target,
+                    source,
+                    target_port,
+                    source_port + 1,
+                    sequence.wrapping_add(1),
+                    TcpFlags::SYN | TcpFlags::ACK,
+                ),
             ),
-            response_packet(
-                target,
-                source,
-                target_port,
-                source_port,
-                sequence,
-                TcpFlags::SYN | TcpFlags::ACK,
+            (
+                "wrong acknowledgement number",
+                response_packet(
+                    target,
+                    source,
+                    target_port,
+                    source_port,
+                    sequence,
+                    TcpFlags::SYN | TcpFlags::ACK,
+                ),
             ),
         ];
-        for packet in invalid_packets {
+        for (case, packet) in invalid_packets {
             assert_eq!(
                 classify_packet(
                     &packet,
@@ -1575,7 +1663,8 @@ mod tests {
                     false,
                     &mut HashSet::new()
                 ),
-                None
+                None,
+                "a response with a {case} should be rejected"
             );
         }
     }
@@ -1606,7 +1695,8 @@ mod tests {
                 false,
                 &mut closed_seen
             ),
-            None
+            None,
+            "a RST/ACK should be ignored when `show_closed` is off"
         );
         assert_eq!(
             classify_packet(
@@ -1621,7 +1711,8 @@ mod tests {
                 host: target,
                 port: target_port,
                 state: PortState::Closed,
-            })
+            }),
+            "a RST/ACK should be reported as closed when `show_closed` is on"
         );
     }
 
@@ -1645,7 +1736,8 @@ mod tests {
         let mut seen = HashSet::new();
         assert_eq!(
             classify_packet(&truncated, &expected, source, source_port, false, &mut seen),
-            None
+            None,
+            "a packet without a TCP header should be ignored"
         );
         for flags in [TcpFlags::ACK, TcpFlags::SYN | TcpFlags::ACK | TcpFlags::RST] {
             let packet = response_packet(
@@ -1658,7 +1750,8 @@ mod tests {
             );
             assert_eq!(
                 classify_packet(&packet, &expected, source, source_port, true, &mut seen),
-                None
+                None,
+                "a response with unexpected TCP flags {flags:#04x} should be ignored"
             );
         }
 
@@ -1671,7 +1764,8 @@ mod tests {
             TcpFlags::SYN | TcpFlags::ACK,
         );
         assert!(
-            classify_packet(&valid, &expected, source, source_port, false, &mut seen).is_some()
+            classify_packet(&valid, &expected, source, source_port, false, &mut seen).is_some(),
+            "ignored packets should not mark the host/port pair as seen"
         );
     }
 
@@ -1700,7 +1794,8 @@ mod tests {
                 false,
                 &mut HashSet::new()
             )
-            .is_some()
+            .is_some(),
+            "an acknowledgement number that wraps past `u32::MAX` should be accepted"
         );
     }
 
@@ -1709,57 +1804,79 @@ mod tests {
         let timeout = Duration::from_secs(30);
 
         assert_eq!(
-            validate_probe_count(254, 65_535, 15, timeout).unwrap(),
-            16_645_890
+            validate_probe_count(254, 65_535, timeout).unwrap(),
+            16_645_890,
+            "all ports on a /24 should be allowed"
         );
         assert_eq!(
-            validate_probe_count(256, 65_535, 15, timeout).unwrap(),
-            16_776_960
+            validate_probe_count(256, 65_535, timeout).unwrap(),
+            16_776_960,
+            "all ports on 256 hosts should be allowed"
         );
         assert_eq!(
-            validate_probe_count(MAX_PROBES, 1, 15, timeout).unwrap(),
-            MAX_PROBES
+            validate_probe_count(MAX_PROBES, 1, timeout).unwrap(),
+            MAX_PROBES,
+            "exactly `MAX_PROBES` probes should be allowed"
         );
-        assert_eq!(validate_probe_count(1, 1, 15, MAX_TIMEOUT).unwrap(), 1);
-        assert!(matches!(
-            validate_probe_count(257, 65_535, 15, timeout),
-            Err(ScanError::TooManyProbes { probe_count: 16_842_495, max }) if max == MAX_PROBES
-        ));
-        assert!(matches!(
-            validate_probe_count(MAX_PROBES + 1, 1, 15, timeout),
-            Err(ScanError::TooManyProbes { max, .. }) if max == MAX_PROBES
-        ));
-        assert!(matches!(
-            validate_probe_count(usize::MAX, 2, 15, timeout),
-            Err(ScanError::ScanSizeOverflow)
-        ));
-        assert!(matches!(
-            validate_probe_count(0, 1, 15, timeout),
-            Err(ScanError::EmptyScan)
-        ));
-        assert!(matches!(
-            validate_probe_count(1, 0, 15, timeout),
-            Err(ScanError::EmptyScan)
-        ));
-        assert!(matches!(
-            validate_probe_count(1, 1, 0, timeout),
-            Err(ScanError::ZeroBandwidth)
-        ));
-        assert!(matches!(
-            validate_probe_count(1, 1, 15, MAX_TIMEOUT + Duration::from_secs(1)),
-            Err(ScanError::TimeoutTooLarge { max, .. }) if max == MAX_TIMEOUT
-        ));
+        assert_eq!(
+            validate_probe_count(1, 1, MAX_TIMEOUT).unwrap(),
+            1,
+            "a timeout of exactly `MAX_TIMEOUT` should be allowed"
+        );
+        assert!(
+            matches!(
+                validate_probe_count(257, 65_535, timeout),
+                Err(ScanError::TooManyProbes { probe_count: 16_842_495, max }) if max == MAX_PROBES
+            ),
+            "all ports on 257 hosts should exceed the probe limit"
+        );
+        assert!(
+            matches!(
+                validate_probe_count(MAX_PROBES + 1, 1, timeout),
+                Err(ScanError::TooManyProbes { max, .. }) if max == MAX_PROBES
+            ),
+            "one probe over `MAX_PROBES` should be rejected"
+        );
+        assert!(
+            matches!(
+                validate_probe_count(usize::MAX, 2, timeout),
+                Err(ScanError::ScanSizeOverflow)
+            ),
+            "a target * port product overflowing `usize` should be rejected"
+        );
+        assert!(
+            matches!(
+                validate_probe_count(0, 1, timeout),
+                Err(ScanError::EmptyScan)
+            ),
+            "a scan without targets should be rejected"
+        );
+        assert!(
+            matches!(
+                validate_probe_count(1, 0, timeout),
+                Err(ScanError::EmptyScan)
+            ),
+            "a scan without ports should be rejected"
+        );
+        assert!(
+            matches!(
+                validate_probe_count(1, 1, MAX_TIMEOUT + Duration::from_secs(1)),
+                Err(ScanError::TimeoutTooLarge { max, .. }) if max == MAX_TIMEOUT
+            ),
+            "a timeout above `MAX_TIMEOUT` should be rejected"
+        );
     }
 
     #[test]
     fn timeout_too_large_reports_both_durations() {
         let timeout = MAX_TIMEOUT + Duration::from_secs(1);
 
-        let error = validate_probe_count(1, 1, 15, timeout).unwrap_err();
+        let error = validate_probe_count(1, 1, timeout).unwrap_err();
 
         assert_eq!(
             error.to_string(),
-            format!("timeout of {timeout:?} exceeds the maximum of {MAX_TIMEOUT:?}")
+            format!("timeout of {timeout:?} exceeds the maximum of {MAX_TIMEOUT:?}"),
+            "the error message should include both the requested and maximum timeout"
         );
     }
 
@@ -1774,15 +1891,21 @@ mod tests {
             expected_responses(&duplicate_targets, 1, 2)
                 .unwrap_err()
                 .to_string()
-                .contains("must be unique")
+                .contains("must be unique"),
+            "duplicate targets should be rejected"
         );
         assert!(
             expected_responses(&duplicate_ports, 1, 2)
                 .unwrap_err()
                 .to_string()
-                .contains("must be unique")
+                .contains("must be unique"),
+            "duplicate ports should be rejected"
         );
-        assert_eq!(expected_responses(&unique, 1, 2).unwrap().len(), 2);
+        assert_eq!(
+            expected_responses(&unique, 1, 2).unwrap().len(),
+            2,
+            "unique targets and ports should yield one entry per pair"
+        );
     }
 
     #[test]
@@ -1800,7 +1923,11 @@ zero            0/tcp
 ",
         )?;
 
-        assert_eq!(ports, [22, 80]);
+        assert_eq!(
+            ports,
+            [22, 80],
+            "only valid, deduplicated TCP ports should be read"
+        );
         Ok(())
     }
 
@@ -1811,7 +1938,10 @@ zero            0/tcp
         let error = ports_from_services(&path).unwrap_err();
         fs::remove_file(&path).unwrap();
 
-        assert!(matches!(error, PortsError::NoTcpServices { path: p } if p == path));
+        assert!(
+            matches!(error, PortsError::NoTcpServices { path: actual } if actual == path),
+            "a services file without TCP ports should be rejected, by path"
+        );
     }
 
     #[test]
@@ -1819,11 +1949,17 @@ zero            0/tcp
         let path = services_path();
         let error = ports_from_services(&path).unwrap_err();
 
-        assert!(matches!(
-            &error,
-            PortsError::ServicesFileRead { path: p, .. } if p == &path
-        ));
-        assert!(format!("{error:#}").contains(&path.display().to_string()));
+        assert!(
+            matches!(
+                &error,
+                PortsError::ServicesFileRead { path: actual, .. } if actual == &path
+            ),
+            "a missing services file should be reported as a read failure, by path"
+        );
+        assert!(
+            format!("{error:#}").contains(&path.display().to_string()),
+            "the error message should include the services file path"
+        );
     }
 
     #[test]
@@ -1845,43 +1981,70 @@ zero            0/tcp
             total_probes: 10,
         };
 
-        assert_eq!(incomplete.partial_results(), [partial_result]);
-        assert_eq!(incomplete.probes_sent(), 7);
-        assert_eq!(incomplete.total_probes(), 10);
+        assert_eq!(
+            incomplete.partial_results(),
+            [partial_result],
+            "partial results should be preserved"
+        );
+        assert_eq!(
+            incomplete.probes_sent(),
+            7,
+            "probes sent should be preserved"
+        );
+        assert_eq!(
+            incomplete.total_probes(),
+            10,
+            "total probes should be preserved"
+        );
         assert_eq!(
             incomplete.to_string(),
-            "scan stopped after sending 7 of 10 probes"
+            "scan stopped after sending 7 of 10 probes",
+            "the error message should report progress"
         );
         assert_eq!(
             Error::source(&incomplete).unwrap().to_string(),
-            "failed to send SYN to 172.16.100.2:443"
+            "failed to send SYN to 172.16.100.2:443",
+            "the source should be the underlying send error"
         );
 
-        let error: anyhow::Error = incomplete.into();
-        assert!(error.downcast_ref::<IncompleteScanError>().is_some());
+        let error = anyhow::Error::from(incomplete);
+        assert!(
+            error.downcast_ref::<IncompleteScanError>().is_some(),
+            "the error should survive conversion into `anyhow::Error`"
+        );
         assert_eq!(
             format!("{error:#}"),
             "scan stopped after sending 7 of 10 probes: \
-             failed to send SYN to 172.16.100.2:443: send failed"
+             failed to send SYN to 172.16.100.2:443: send failed",
+            "the full error chain should be reported"
         );
     }
 
     #[test]
     fn describes_str_panic_payload() {
-        let payload: Box<dyn Any + Send> = Box::new("boom");
-        assert_eq!(describe_panic_payload(&*payload), "boom");
+        assert_eq!(
+            describe_panic_payload(&"boom"),
+            "boom",
+            "a `&str` payload should be returned as is"
+        );
     }
 
     #[test]
     fn describes_string_panic_payload() {
-        let payload: Box<dyn Any + Send> = Box::new(String::from("boom"));
-        assert_eq!(describe_panic_payload(&*payload), "boom");
+        assert_eq!(
+            describe_panic_payload(&String::from("boom")),
+            "boom",
+            "a `String` payload should be returned as a `&str`"
+        );
     }
 
     #[test]
     fn describes_unrecognized_panic_payload() {
-        let payload: Box<dyn Any + Send> = Box::new(42_i32);
-        assert_eq!(describe_panic_payload(&*payload), "unknown panic payload");
+        assert_eq!(
+            describe_panic_payload(&42_i32),
+            "unknown panic payload",
+            "an unrecognized payload should fall back to a generic message"
+        );
     }
 
     #[test]
@@ -1892,10 +2055,11 @@ zero            0/tcp
             elapsed: Duration::from_secs(60),
         };
 
-        assert_eq!(progress.percent(), 25);
+        assert_eq!(progress.percent(), 25, "percentage of probes sent");
         assert_eq!(
             progress.estimated_remaining(),
-            Some(Duration::from_secs(180))
+            Some(Duration::from_secs(180)),
+            "remaining time should extrapolate the current send rate"
         );
     }
 
@@ -1919,33 +2083,81 @@ zero            0/tcp
             ..complete
         };
 
-        assert_eq!(no_probes.percent(), 0);
-        assert_eq!(no_probes.estimated_remaining(), None);
-        assert_eq!(not_started.percent(), 0);
-        assert_eq!(not_started.estimated_remaining(), None);
-        assert_eq!(complete.percent(), 100);
-        assert_eq!(complete.estimated_remaining(), Some(Duration::ZERO));
-        assert_eq!(over_complete.estimated_remaining(), Some(Duration::ZERO));
+        assert_eq!(
+            no_probes.percent(),
+            0,
+            "an empty scan should report 0% instead of dividing by zero"
+        );
+        assert_eq!(
+            no_probes.estimated_remaining(),
+            None,
+            "an empty scan should have no estimate"
+        );
+        assert_eq!(
+            not_started.percent(),
+            0,
+            "a scan with no probes sent should report 0%"
+        );
+        assert_eq!(
+            not_started.estimated_remaining(),
+            None,
+            "a scan with no probes sent should have no estimate"
+        );
+        assert_eq!(
+            complete.percent(),
+            100,
+            "a fully sent scan should report 100%"
+        );
+        assert_eq!(
+            complete.estimated_remaining(),
+            Some(Duration::ZERO),
+            "a fully sent scan should have nothing remaining"
+        );
+        assert_eq!(
+            over_complete.estimated_remaining(),
+            Some(Duration::ZERO),
+            "more probes sent than total should saturate to nothing remaining"
+        );
     }
 
     #[test]
     fn probe_limit_accommodates_single_port_slash_8() {
-        assert_eq!(MAX_PROBES, 16_777_214);
+        assert_eq!(
+            MAX_PROBES, 16_777_214,
+            "the probe limit should equal the usable addresses of a /8"
+        );
     }
 
     #[test]
     fn progress_schedule_uses_increasing_intervals() {
-        assert_eq!(next_progress_deadline(Duration::from_mins(9)), TEN_MINUTES);
-        assert_eq!(next_progress_deadline(TEN_MINUTES), Duration::from_mins(20));
-        assert_eq!(next_progress_deadline(Duration::from_mins(50)), ONE_HOUR);
-        assert_eq!(next_progress_deadline(ONE_HOUR), Duration::from_mins(90));
+        assert_eq!(
+            next_progress_deadline(Duration::from_mins(9)),
+            TEN_MINUTES,
+            "progress should be reported every minute during the first ten minutes"
+        );
+        assert_eq!(
+            next_progress_deadline(TEN_MINUTES),
+            Duration::from_mins(20),
+            "progress should be reported every ten minutes after ten minutes"
+        );
+        assert_eq!(
+            next_progress_deadline(Duration::from_mins(50)),
+            ONE_HOUR,
+            "progress should be reported every ten minutes until one hour"
+        );
+        assert_eq!(
+            next_progress_deadline(ONE_HOUR),
+            Duration::from_mins(90),
+            "progress should be reported every thirty minutes after one hour"
+        );
     }
 
     #[test]
     fn progress_schedule_skips_missed_deadlines() {
         assert_eq!(
             advance_progress_deadline(ONE_MINUTE, Duration::from_mins(35)),
-            Duration::from_mins(40)
+            Duration::from_mins(40),
+            "missed deadlines should be skipped to the next one after `elapsed`"
         );
     }
 }

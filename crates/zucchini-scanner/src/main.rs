@@ -8,6 +8,7 @@
 use std::fmt;
 use std::io::{self, Write};
 use std::net::Ipv4Addr;
+use std::num::NonZeroU64;
 use std::process::ExitCode;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
@@ -66,31 +67,24 @@ struct Arguments {
     /// Network interface to use for the scan.
     #[arg(short = 'i', long)]
     interface: String,
-
     /// IPv4 address or CIDR to scan (e.g., 192.168.0.0/24).
     #[arg(short = 'h', long)]
     host: Targets,
-
     /// Ports (e.g., 21-23,80,443) [default: /etc/services].
     #[arg(short = 'p', long)]
     ports: Option<Ports>,
-
     /// Display ports that reply with RST.
     #[arg(short = 'c', long)]
     closed: bool,
-
     /// Usable bandwidth in KiB/s.
-    #[arg(short = 'b', long, default_value_t = 15, value_parser = clap::value_parser!(u64).range(1..))]
-    bandwidth: u64,
-
+    #[arg(short = 'b', long, default_value = "15")]
+    bandwidth: NonZeroU64,
     /// Seconds to wait for late replies.
     #[arg(short = 't', long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..))]
     timeout: u64,
-
     /// Stream scan results as soon as they arrive.
     #[arg(short = 'v', long)]
     verbose: bool,
-
     /// Print command help.
     #[arg(long, action = clap::ArgAction::Help)]
     help: Option<bool>,
@@ -338,13 +332,33 @@ mod tests {
         let arguments =
             Arguments::try_parse_from(["zucchini", "--host", "127.0.0.1", "--interface", "lo"])?;
 
-        assert_eq!(arguments.host, Targets(vec!["127.0.0.1".parse()?]));
-        assert_eq!(arguments.interface, "lo");
-        assert_eq!(arguments.bandwidth, 15);
-        assert!(arguments.ports.is_none());
-        assert!(!arguments.closed);
-        assert_eq!(arguments.timeout, 30);
-        assert!(!arguments.verbose);
+        assert_eq!(
+            arguments.host,
+            Targets(vec!["127.0.0.1".parse()?]),
+            "`--host` should be parsed into targets"
+        );
+        assert_eq!(
+            arguments.interface, "lo",
+            "`--interface` should be parsed as is"
+        );
+        assert_eq!(
+            arguments.bandwidth.get(),
+            15,
+            "bandwidth should default to 15 KiB/s"
+        );
+        assert!(
+            arguments.ports.is_none(),
+            "ports should default to none (read from /etc/services)"
+        );
+        assert!(
+            !arguments.closed,
+            "closed ports should be hidden by default"
+        );
+        assert_eq!(
+            arguments.timeout, 30,
+            "timeout should default to 30 seconds"
+        );
+        assert!(!arguments.verbose, "verbose mode should be off by default");
         Ok(())
     }
 
@@ -366,45 +380,92 @@ mod tests {
             "--verbose",
         ])?;
 
-        assert_eq!(arguments.host, Targets(parse_targets("192.168.2.0/24")?));
-        assert_eq!(arguments.interface, "eth0");
-        assert_eq!(arguments.bandwidth, 100);
-        assert_eq!(arguments.ports, Some(Ports(vec![22, 80])));
-        assert!(arguments.closed);
-        assert_eq!(arguments.timeout, 60);
-        assert!(arguments.verbose);
+        assert_eq!(
+            arguments.host,
+            Targets(parse_targets("192.168.2.0/24")?),
+            "`--host` should expand a CIDR into targets"
+        );
+        assert_eq!(
+            arguments.interface, "eth0",
+            "`--interface` should be parsed as is"
+        );
+        assert_eq!(
+            arguments.bandwidth.get(),
+            100,
+            "`--bandwidth` should override the default"
+        );
+        assert_eq!(
+            arguments.ports,
+            Some(Ports(vec![22, 80])),
+            "`--ports` should be parsed into ports"
+        );
+        assert!(arguments.closed, "`--closed` should enable closed ports");
+        assert_eq!(
+            arguments.timeout, 60,
+            "`--timeout` should override the default"
+        );
+        assert!(arguments.verbose, "`--verbose` should enable verbose mode");
         Ok(())
     }
 
     #[test]
     fn rejects_missing_unknown_and_invalid_options() {
-        Arguments::try_parse_from(["zucchini", "-i", "lo"]).unwrap_err();
-        Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1"]).unwrap_err();
-        Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "--unknown"])
-            .unwrap_err();
-        Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "--timeout", "0"])
-            .unwrap_err();
-        Arguments::try_parse_from([
-            "zucchini",
-            "-h",
-            "127.0.0.1",
-            "-i",
-            "lo",
-            "--bandwidth",
-            "0",
-        ])
-        .unwrap_err();
-        Arguments::try_parse_from(["zucchini", "-h", "not-an-address", "-i", "lo"]).unwrap_err();
-        Arguments::try_parse_from([
-            "zucchini",
-            "-h",
-            "127.0.0.1",
-            "-i",
-            "lo",
-            "--ports",
-            "80-79",
-        ])
-        .unwrap_err();
+        assert!(
+            Arguments::try_parse_from(["zucchini", "-i", "lo"]).is_err(),
+            "a missing `--host` should be rejected"
+        );
+        assert!(
+            Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1"]).is_err(),
+            "a missing `--interface` should be rejected"
+        );
+        assert!(
+            Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "--unknown"])
+                .is_err(),
+            "an unknown option should be rejected"
+        );
+        assert!(
+            Arguments::try_parse_from([
+                "zucchini",
+                "-h",
+                "127.0.0.1",
+                "-i",
+                "lo",
+                "--timeout",
+                "0"
+            ])
+            .is_err(),
+            "a zero timeout should be rejected"
+        );
+        assert!(
+            Arguments::try_parse_from([
+                "zucchini",
+                "-h",
+                "127.0.0.1",
+                "-i",
+                "lo",
+                "--bandwidth",
+                "0",
+            ])
+            .is_err(),
+            "a zero bandwidth should be rejected"
+        );
+        assert!(
+            Arguments::try_parse_from(["zucchini", "-h", "not-an-address", "-i", "lo"]).is_err(),
+            "an invalid target should be rejected"
+        );
+        assert!(
+            Arguments::try_parse_from([
+                "zucchini",
+                "-h",
+                "127.0.0.1",
+                "-i",
+                "lo",
+                "--ports",
+                "80-79",
+            ])
+            .is_err(),
+            "an invalid port range should be rejected"
+        );
     }
 
     #[test]
@@ -420,7 +481,8 @@ mod tests {
                 "{PROGRAM} {VERSION} - {DESCRIPTION}\nCopyright (c) 2026 {AUTHORS}\n\n\
                 Scanning: 3 host/port pairs via eth0 (192.168.2.1)...\n\n\
                 Done: 3 host/port pairs scanned in 30.1 seconds\n"
-            )
+            ),
+            "banner, scan summary, and done summary output"
         );
         Ok(())
     }
@@ -432,7 +494,8 @@ mod tests {
 
         assert_eq!(
             String::from_utf8(output)?,
-            "\nIncomplete: sent 1 of 3 host/port pairs\n"
+            "\nIncomplete: sent 1 of 3 host/port pairs\n",
+            "incomplete scan summary output"
         );
         Ok(())
     }
@@ -443,7 +506,10 @@ mod tests {
         let closed = ScanResult::new("172.16.100.3".parse()?, 80, PortState::Closed);
         let mut output = Vec::new();
         write_results_to(&mut output, &[])?;
-        assert!(output.is_empty());
+        assert!(
+            output.is_empty(),
+            "no results should print nothing, not even the heading"
+        );
 
         write_results_to(&mut output, &[open, closed])?;
         assert_eq!(
@@ -453,14 +519,16 @@ mod tests {
                 "Scan results:\n",
                 "open 172.16.100.2:443\n",
                 "closed 172.16.100.3:80\n",
-            )
+            ),
+            "buffered results output"
         );
 
         let mut verbose = Vec::new();
         write_result_to(&mut verbose, open, true)?;
         assert_eq!(
             String::from_utf8(verbose)?,
-            "[verbose] open 172.16.100.2:443\n"
+            "[verbose] open 172.16.100.2:443\n",
+            "verbose result output"
         );
         Ok(())
     }
@@ -477,15 +545,18 @@ mod tests {
 
         assert_eq!(
             format_progress(progress, now),
-            "[stats] 25% done | ETA Thu 2026-01-01 12:03:00 UTC"
+            "[stats] 25% done | ETA Thu 2026-01-01 12:03:00 UTC",
+            "a partially sent scan should report its ETA"
         );
         assert_eq!(
             format_progress(not_started, now),
-            "[stats] 0% done | ETA unknown"
+            "[stats] 0% done | ETA unknown",
+            "a scan with no probes sent should report an unknown ETA"
         );
         assert_eq!(
             format_progress(complete, now),
-            "[stats] 100% done | ETA Thu 2026-01-01 12:00:00 UTC"
+            "[stats] 100% done | ETA Thu 2026-01-01 12:00:00 UTC",
+            "a fully sent scan should report the current time as its ETA"
         );
     }
 
@@ -500,7 +571,8 @@ mod tests {
 
         assert_eq!(
             format_progress(progress, now),
-            "[stats] 25% done | ETA Thu 2026-01-01 12:03:00 +01:00"
+            "[stats] 25% done | ETA Thu 2026-01-01 12:03:00 +01:00",
+            "a fixed offset should be formatted as a numeric time zone"
         );
     }
 
@@ -508,7 +580,11 @@ mod tests {
     fn help_flag_displays_help() {
         let error = Arguments::try_parse_from(["zucchini", "--help"]).unwrap_err();
 
-        assert_eq!(error.kind(), ErrorKind::DisplayHelp);
+        assert_eq!(
+            error.kind(),
+            ErrorKind::DisplayHelp,
+            "`--help` should display help"
+        );
     }
 
     #[test]
@@ -517,6 +593,10 @@ mod tests {
             Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "--version"])
                 .unwrap_err();
 
-        assert_eq!(error.kind(), ErrorKind::UnknownArgument);
+        assert_eq!(
+            error.kind(),
+            ErrorKind::UnknownArgument,
+            "`--version` should not be accepted"
+        );
     }
 }

@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.2"
+version = "0.2.0"
 authors = ["Marco Ivaldi <raptor@0xdeadbeef.info>"]
 edition = "2024"
 homepage = "https://0xdeadbeef.info/"
@@ -64,4 +64,5 @@ integer_division = "allow"
 integer_division_remainder_used = "allow"
 indexing_slicing = "allow"
 shadow_reuse = "allow"
+shadow_same = "allow"
 multiple_crate_versions = "allow"

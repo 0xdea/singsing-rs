@@ -9,8 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Change `ScanConfig::bandwidth_kib` to `NonZeroU64`, so a zero bandwidth can no longer be configured (breaking).
+- Add a message to every test assertion.
 - Improve code style.
 - Update dependencies.
+
+### Removed
+
+- Remove `ScanError::ZeroBandwidth`, which can no longer occur (breaking).
 
 ## [0.1.2] - 2026-09-18
 

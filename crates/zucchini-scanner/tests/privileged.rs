@@ -14,6 +14,9 @@ use std::process::{Command, Output};
 use std::str;
 use std::sync::atomic::{AtomicU16, Ordering};
 
+use singsing_rs::Port;
+
+/// Binds a TCP listener on the first free loopback port from 20000 upward.
 fn loopback_listener() -> TcpListener {
     static NEXT_PORT: AtomicU16 = AtomicU16::new(20_000);
 
@@ -26,7 +29,8 @@ fn loopback_listener() -> TcpListener {
     panic!("no loopback test port available between 20000 and 29999");
 }
 
-fn unused_loopback_port() -> u16 {
+/// Returns a loopback port that was free a moment ago and has no listener bound to it.
+fn unused_loopback_port() -> Port {
     let listener = loopback_listener();
     listener
         .local_addr()
@@ -34,7 +38,8 @@ fn unused_loopback_port() -> u16 {
         .port()
 }
 
-fn run(port: u16, extra_arguments: &[&str]) -> Output {
+/// Runs a fast, short-timeout `zucchini` loopback scan of `port` with any extra arguments.
+fn run(port: Port, extra_arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_zucchini"))
         .args([
             "--host",
@@ -53,10 +58,12 @@ fn run(port: u16, extra_arguments: &[&str]) -> Output {
         .expect("zucchini should execute")
 }
 
+/// Returns a finished process's stdout as UTF-8 text.
 fn stdout(output: &Output) -> &str {
     str::from_utf8(&output.stdout).expect("stdout should be UTF-8")
 }
 
+/// Returns a finished process's stderr as UTF-8 text.
 fn stderr(output: &Output) -> &str {
     str::from_utf8(&output.stderr).expect("stderr should be UTF-8")
 }
@@ -69,12 +76,27 @@ fn scans_open_port_end_to_end() {
     let output = run(port, &[]);
     let result = format!("open 127.0.0.1:{port}");
 
-    assert!(output.status.success());
-    assert!(stderr(&output).starts_with("zucchini "));
-    assert!(stderr(&output).contains("Scanning: 1 host/port pairs via lo (127.0.0.1)"));
-    assert!(stdout(&output).contains("Scan results:"));
-    assert!(stdout(&output).contains(&result));
-    assert!(stderr(&output).contains("Done: 1 host/port pairs scanned"));
+    assert!(output.status.success(), "the scan should succeed");
+    assert!(
+        stderr(&output).starts_with("zucchini "),
+        "the banner should be printed to stderr"
+    );
+    assert!(
+        stderr(&output).contains("Scanning: 1 host/port pairs via lo (127.0.0.1)"),
+        "the scan summary should be printed to stderr"
+    );
+    assert!(
+        stdout(&output).contains("Scan results:"),
+        "the results heading should be printed to stdout"
+    );
+    assert!(
+        stdout(&output).contains(&result),
+        "the open port should be printed to stdout"
+    );
+    assert!(
+        stderr(&output).contains("Done: 1 host/port pairs scanned"),
+        "the done summary should be printed to stderr"
+    );
 }
 
 #[test]
@@ -85,10 +107,20 @@ fn scans_open_port_in_verbose_mode() {
     let output = run(port, &["--verbose"]);
     let result = format!("open 127.0.0.1:{port}");
 
-    assert!(output.status.success());
-    assert!(stdout(&output).contains(&format!("[verbose] {result}")));
-    assert_eq!(stdout(&output).matches(&result).count(), 2);
-    assert!(stdout(&output).contains("\nScan results:\n"));
+    assert!(output.status.success(), "the scan should succeed");
+    assert!(
+        stdout(&output).contains(&format!("[verbose] {result}")),
+        "the open port should be streamed as a verbose line"
+    );
+    assert_eq!(
+        stdout(&output).matches(&result).count(),
+        2,
+        "the open port should be printed once live and once in the final results"
+    );
+    assert!(
+        stdout(&output).contains("\nScan results:\n"),
+        "the results heading should follow the verbose lines"
+    );
 }
 
 #[test]
@@ -97,13 +129,16 @@ fn reports_closed_port_end_to_end() {
     let port = unused_loopback_port();
     let output = run(port, &["--closed"]);
 
-    assert!(output.status.success());
+    assert!(output.status.success(), "the scan should succeed");
     assert!(
         stdout(&output).contains(&format!("closed 127.0.0.1:{port}")),
-        "stdout was: {}",
+        "the closed port should be printed with `--closed`, stdout was: {}",
         stdout(&output)
     );
-    assert!(stderr(&output).contains("Done: 1 host/port pairs scanned"));
+    assert!(
+        stderr(&output).contains("Done: 1 host/port pairs scanned"),
+        "the done summary should be printed to stderr"
+    );
 }
 
 #[test]
@@ -112,11 +147,14 @@ fn hides_closed_port_by_default_end_to_end() {
     let port = unused_loopback_port();
     let output = run(port, &[]);
 
-    assert!(output.status.success());
+    assert!(output.status.success(), "the scan should succeed");
     assert!(
         stdout(&output).is_empty(),
-        "stdout was: {}",
+        "the closed port should be hidden without `--closed`, stdout was: {}",
         stdout(&output)
     );
-    assert!(stderr(&output).contains("Done: 1 host/port pairs scanned"));
+    assert!(
+        stderr(&output).contains("Done: 1 host/port pairs scanned"),
+        "the done summary should be printed to stderr"
+    );
 }

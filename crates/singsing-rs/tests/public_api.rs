@@ -10,10 +10,12 @@ use std::net::Ipv4Addr;
 
 use singsing_rs::{ScanConfig, parse_targets, scan};
 
+/// Parses a test IPv4 address.
 fn address(input: &str) -> Ipv4Addr {
     input.parse().expect("test address should be valid")
 }
 
+/// Runs a scan that is expected to fail during validation and returns its error message chain.
 fn scan_error(config: &ScanConfig) -> String {
     format!(
         "{:#}",
@@ -27,8 +29,14 @@ fn rejects_empty_scan_configuration() {
     let no_targets = ScanConfig::new(Vec::new(), vec![443], source);
     let no_ports = ScanConfig::new(vec![source], Vec::new(), source);
 
-    assert!(scan_error(&no_targets).contains("at least one target and one port"));
-    assert!(scan_error(&no_ports).contains("at least one target and one port"));
+    assert!(
+        scan_error(&no_targets).contains("at least one target and one port"),
+        "a scan without targets should be rejected"
+    );
+    assert!(
+        scan_error(&no_ports).contains("at least one target and one port"),
+        "a scan without ports should be rejected"
+    );
 }
 
 #[test]
@@ -38,7 +46,10 @@ fn rejects_excessive_scan_before_raw_socket_creation() {
     let ports = (1..=u16::MAX).collect();
     let config = ScanConfig::new(targets, ports, source);
 
-    assert!(scan_error(&config).contains("maximum is 16777214"));
+    assert!(
+        scan_error(&config).contains("maximum is 16777214"),
+        "all ports on 257 hosts should exceed the probe limit"
+    );
 }
 
 #[test]
@@ -47,8 +58,14 @@ fn rejects_duplicate_targets_and_ports() {
     let duplicate_targets = ScanConfig::new(vec![source, source], vec![443], source);
     let duplicate_ports = ScanConfig::new(vec![source], vec![443, 443], source);
 
-    assert!(scan_error(&duplicate_targets).contains("targets and ports must be unique"));
-    assert!(scan_error(&duplicate_ports).contains("targets and ports must be unique"));
+    assert!(
+        scan_error(&duplicate_targets).contains("targets and ports must be unique"),
+        "duplicate targets should be rejected"
+    );
+    assert!(
+        scan_error(&duplicate_ports).contains("targets and ports must be unique"),
+        "duplicate ports should be rejected"
+    );
 }
 
 #[test]
@@ -58,6 +75,7 @@ fn rejects_oversized_cidr_without_expanding_it() {
     assert!(
         error
             .to_string()
-            .contains("split networks larger than a /8")
+            .contains("split networks larger than a /8"),
+        "the error message should suggest splitting the network"
     );
 }

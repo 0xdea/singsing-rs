@@ -10,22 +10,28 @@
 #![expect(clippy::expect_used, reason = "tests can use `expect`")]
 
 use std::net::{Ipv4Addr, TcpListener};
+use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use singsing_rs::{CallbackError, PortState, ScanConfig, ScanResult, scan, scan_with_callback};
+use singsing_rs::{
+    CallbackError, Port, PortState, ScanConfig, ScanResult, scan, scan_with_callback,
+};
 
+/// The late-reply timeout used by every loopback scan.
 const TEST_TIMEOUT: Duration = Duration::from_millis(250);
 
-fn scan_config(ports: Vec<u16>, show_closed: bool) -> ScanConfig {
+/// Builds a fast, short-timeout loopback scan configuration for the given ports.
+fn scan_config(ports: Vec<Port>, show_closed: bool) -> ScanConfig {
     let mut config = ScanConfig::new(vec![Ipv4Addr::LOCALHOST], ports, Ipv4Addr::LOCALHOST);
-    config.bandwidth_kib = 1024;
+    config.bandwidth_kib = NonZeroU64::new(1024).unwrap();
     config.timeout = TEST_TIMEOUT;
     config.show_closed = show_closed;
     config
 }
 
+/// Binds a TCP listener on the first free loopback port from 20000 upward.
 fn loopback_listener() -> TcpListener {
     static NEXT_PORT: AtomicU16 = AtomicU16::new(20_000);
 
@@ -38,7 +44,8 @@ fn loopback_listener() -> TcpListener {
     panic!("no loopback test port available between 20000 and 29999");
 }
 
-fn unused_loopback_port() -> u16 {
+/// Returns a loopback port that was free a moment ago and has no listener bound to it.
+fn unused_loopback_port() -> Port {
     let listener = loopback_listener();
     listener
         .local_addr()
@@ -54,7 +61,8 @@ fn detects_open_loopback_port() {
 
     assert_eq!(
         scan(&scan_config(vec![port], false)).unwrap(),
-        [ScanResult::new(Ipv4Addr::LOCALHOST, port, PortState::Open)]
+        [ScanResult::new(Ipv4Addr::LOCALHOST, port, PortState::Open)],
+        "a listening loopback port should be reported as open"
     );
 }
 
@@ -63,14 +71,18 @@ fn detects_open_loopback_port() {
 fn controls_closed_loopback_reporting() {
     let port = unused_loopback_port();
 
-    assert!(scan(&scan_config(vec![port], false)).unwrap().is_empty());
+    assert!(
+        scan(&scan_config(vec![port], false)).unwrap().is_empty(),
+        "a closed port should not be reported when `show_closed` is off"
+    );
     assert_eq!(
         scan(&scan_config(vec![port], true)).unwrap(),
         [ScanResult::new(
             Ipv4Addr::LOCALHOST,
             port,
             PortState::Closed
-        )]
+        )],
+        "a closed port should be reported when `show_closed` is on"
     );
 }
 
@@ -91,7 +103,10 @@ fn sorts_mixed_loopback_results() {
 
     let results = scan(&scan_config(vec![second_open, closed, first_open], true)).unwrap();
 
-    assert_eq!(results, expected);
+    assert_eq!(
+        results, expected,
+        "results should be sorted by port regardless of scan order"
+    );
 }
 
 #[test]
@@ -105,11 +120,18 @@ fn delivers_callback_and_final_result() {
         sender.send(result).map_err(CallbackError::from)
     })
     .unwrap();
-    let callbacks: Vec<_> = receiver.into_iter().collect();
+    let callbacks = receiver.into_iter().collect::<Vec<_>>();
 
-    assert_eq!(callbacks, results);
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].state, PortState::Open);
+    assert_eq!(
+        callbacks, results,
+        "the callback should see exactly the returned results"
+    );
+    assert_eq!(results.len(), 1, "one open port should yield one result");
+    assert_eq!(
+        results[0].state,
+        PortState::Open,
+        "the result should report the port as open"
+    );
 }
 
 #[test]
@@ -121,7 +143,16 @@ fn waits_for_post_transmission_timeout() {
     let results = scan(&scan_config(vec![port], false)).unwrap();
     let elapsed = started.elapsed();
 
-    assert!(results.is_empty());
-    assert!(elapsed >= TEST_TIMEOUT);
-    assert!(elapsed < Duration::from_secs(5));
+    assert!(
+        results.is_empty(),
+        "a closed port should not be reported when `show_closed` is off"
+    );
+    assert!(
+        elapsed >= TEST_TIMEOUT,
+        "the scan should wait the late-reply timeout, but took {elapsed:?}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "the scan should not wait much longer than the timeout, but took {elapsed:?}"
+    );
 }
