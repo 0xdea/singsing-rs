@@ -31,6 +31,9 @@ const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 /// Package authors.
 const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 
+/// The default `--bandwidth` in KiB/s, matching the library's [`ScanConfig::new`] default.
+const DEFAULT_BANDWIDTH_KIB: NonZeroU64 = NonZeroU64::new(15).unwrap();
+
 /// The maximum `--timeout` in seconds (5 minutes).
 ///
 /// Late replies stop arriving about a minute after a probe (the last SYN/ACK retransmission under
@@ -85,7 +88,7 @@ struct Arguments {
     #[arg(short = 'c', long)]
     closed: bool,
     /// Usable bandwidth in KiB/s.
-    #[arg(short = 'b', long, default_value = "15")]
+    #[arg(short = 'b', long, default_value_t = DEFAULT_BANDWIDTH_KIB)]
     bandwidth: NonZeroU64,
     /// Seconds to wait for late replies (1-300).
     #[arg(
