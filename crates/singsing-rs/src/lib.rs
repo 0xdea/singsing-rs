@@ -54,7 +54,12 @@ const MIN_RECEIVE_WAIT: Duration = Duration::from_micros(1);
 /// The maximum number of probes to send during a scan.
 const MAX_PROBES: usize = 16_777_214;
 /// The maximum time to listen for late replies after the final probe.
-const MAX_TIMEOUT: Duration = Duration::from_hours(24);
+///
+/// Replies stop arriving about a minute after a probe (the last SYN/ACK retransmission under
+/// Linux's default `tcp_synack_retries`), so this is a sanity cap that catches unit mistakes
+/// (e.g., milliseconds passed as seconds), while leaving room for unusual links. It also keeps
+/// `Instant::now() + timeout` far from overflowing.
+const MAX_TIMEOUT: Duration = Duration::from_hours(1);
 
 /// The default packet bandwidth in KiB/s, used by [`ScanConfig::new`].
 const DEFAULT_BANDWIDTH_KIB: NonZeroU64 = NonZeroU64::new(15).unwrap();
@@ -401,8 +406,8 @@ pub struct ScanConfig {
     pub bandwidth_kib: NonZeroU64,
     /// Time to listen for late replies after the final probe.
     ///
-    /// Capped at 24 hours: a larger value is rejected with [`ScanError::TimeoutTooLarge`] before
-    /// any packet is sent. Zero is allowed, and stops listening shortly after the final probe is
+    /// Capped at 1 hour: a larger value is rejected with [`ScanError::TimeoutTooLarge`] before any
+    /// packet is sent. Zero is allowed, and stops listening shortly after the final probe is
     /// sent: replies already received while sending are returned, but a reply still unread when
     /// listening stops is dropped. [`ScanConfig::new`] defaults this to 30 seconds.
     pub timeout: Duration,

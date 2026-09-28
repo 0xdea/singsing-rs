@@ -31,9 +31,13 @@ const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 /// Package authors.
 const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 
-/// The maximum `--timeout` in seconds, matching the library's 24-hour cap on
-/// [`ScanConfig::timeout`] so an oversized value is rejected by clap before the scan starts.
-const MAX_TIMEOUT_SECS: u64 = 24 * 60 * 60;
+/// The maximum `--timeout` in seconds (5 minutes).
+///
+/// Late replies stop arriving about a minute after a probe (the last SYN/ACK retransmission under
+/// Linux's default `tcp_synack_retries`), so waiting longer only idles the scanner. This is
+/// stricter than the library's own 1-hour cap on [`ScanConfig::timeout`], which is a sanity limit
+/// rather than a practical one.
+const MAX_TIMEOUT_SECS: u64 = 5 * 60;
 
 /// IPv4 scan targets parsed from a `--host` argument.
 ///
@@ -83,7 +87,7 @@ struct Arguments {
     /// Usable bandwidth in KiB/s.
     #[arg(short = 'b', long, default_value = "15")]
     bandwidth: NonZeroU64,
-    /// Seconds to wait for late replies (1-86400).
+    /// Seconds to wait for late replies (1-300).
     #[arg(
         short = 't',
         long,
@@ -490,19 +494,16 @@ mod tests {
             "the minimum timeout should be accepted"
         );
         assert_eq!(
-            parse_timeout("86400")?.timeout,
+            parse_timeout("300")?.timeout,
             MAX_TIMEOUT_SECS,
             "the maximum timeout should be accepted"
         );
         assert!(
-            parse_timeout("86401").is_err(),
+            parse_timeout("301").is_err(),
             "a timeout above the maximum should be rejected"
         );
-        assert_eq!(
-            Duration::from_secs(MAX_TIMEOUT_SECS),
-            Duration::from_hours(24),
-            "the CLI cap should match the library's 24-hour cap"
-        );
+        // That the maximum also passes the library's own (private) cap is checked end to end by
+        // the `accepts_maximum_timeout_in_library_validation` CLI test.
         assert!(
             Arguments::command()
                 .render_help()

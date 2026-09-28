@@ -168,9 +168,9 @@ Unlike the original `singsing`, this implementation does not send calibration tr
 
 ### Late-reply timeout
 
-After the final probe is sent, the scanner keeps listening for late replies for 30 seconds by default. Override it with `-t`/`--timeout`, which accepts between 1 and 86,400 seconds (24 hours).
+After the final probe is sent, the scanner keeps listening for late replies for 30 seconds by default. Override it with `-t`/`--timeout`, which accepts between 1 and 300 seconds (5 minutes). Waiting longer is rarely useful: a target's first reply normally arrives within one round trip, and even its SYN/ACK retransmissions stop about a minute after the probe (with Linux's default `tcp_synack_retries`).
 
-Library callers set `ScanConfig::timeout` directly. It is capped at the same 24 hours, and a larger value is rejected with `ScanError::TimeoutTooLarge` before any packet is sent. The cap guarantees the receiver's deadline can always be computed without overflowing. Unlike `zucchini`, the library also accepts a zero timeout: replies already received while probes are still being sent are collected as usual, but listening stops shortly after the final probe is sent, and any reply not yet read by then is dropped.
+Library callers set `ScanConfig::timeout` directly. It is capped at a more permissive 1 hour, and a larger value is rejected with `ScanError::TimeoutTooLarge` before any packet is sent. The cap is a sanity limit that catches unit mistakes, such as milliseconds passed as seconds. Unlike `zucchini`, the library also accepts a zero timeout: replies already received while probes are still being sent are collected as usual, but listening stops shortly after the final probe is sent, and any reply not yet read by then is dropped.
 
 ### Transmission order
 

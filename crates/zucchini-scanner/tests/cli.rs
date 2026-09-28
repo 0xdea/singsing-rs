@@ -104,7 +104,7 @@ fn rejects_invalid_cli() {
 
 #[test]
 fn rejects_timeout_above_maximum_before_scan() {
-    let output = run(&["-h", "192.168.2.1", "-i", "lo", "-p", "80", "-t", "86401"]);
+    let output = run(&["-h", "192.168.2.1", "-i", "lo", "-p", "80", "-t", "301"]);
 
     assert!(!output.status.success(), "an oversized timeout should fail");
     assert_eq!(
@@ -114,11 +114,11 @@ fn rejects_timeout_above_maximum_before_scan() {
     );
     assert!(stdout(&output).is_empty(), "stdout should be empty");
     assert!(
-        stderr(&output).contains("invalid value '86401' for '--timeout <TIMEOUT>'"),
+        stderr(&output).contains("invalid value '301' for '--timeout <TIMEOUT>'"),
         "an oversized timeout should be reported as an invalid value"
     );
     assert!(
-        stderr(&output).contains("1..=86400"),
+        stderr(&output).contains("1..=300"),
         "the error should state the accepted range"
     );
     assert!(
@@ -131,8 +131,8 @@ fn rejects_timeout_above_maximum_before_scan() {
 fn accepts_maximum_timeout_in_library_validation() {
     // The library checks the timeout before the probe count, so an oversized scan failing on the
     // probe limit (rather than the timeout) proves the CLI's maximum passes the library's own
-    // check. It also fails before raw socket creation, so it can't start a real 24-hour scan
-    // even when the tests run as root.
+    // check. It also fails before raw socket creation, so it can't start a real scan even when the
+    // tests run as root.
     let output = run(&[
         "-h",
         "192.168.2.0/23",
@@ -141,7 +141,7 @@ fn accepts_maximum_timeout_in_library_validation() {
         "-p",
         "1-65535",
         "-t",
-        "86400",
+        "300",
     ]);
 
     assert!(!output.status.success(), "an oversized scan should fail");
