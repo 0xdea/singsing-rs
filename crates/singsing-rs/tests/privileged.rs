@@ -22,7 +22,8 @@ use singsing_rs::{
 /// The late-reply timeout used by every loopback scan.
 const TEST_TIMEOUT: Duration = Duration::from_millis(250);
 
-/// Builds a fast, short-timeout loopback scan configuration for the given ports.
+/// Builds a fast, short-timeout loopback scan configuration for the given
+/// ports.
 fn scan_config(ports: Vec<Port>, show_closed: bool) -> ScanConfig {
     let mut config = ScanConfig::new(vec![Ipv4Addr::LOCALHOST], ports, Ipv4Addr::LOCALHOST);
     config.bandwidth_kib = NonZeroU64::new(1024).unwrap();
@@ -53,7 +54,8 @@ fn listener_port(listener: &TcpListener) -> Port {
     Port::new(port).expect("a bound listener's port should never be zero")
 }
 
-/// Returns a loopback port that was free a moment ago and has no listener bound to it.
+/// Returns a loopback port that was free a moment ago and has no listener bound
+/// to it.
 fn unused_loopback_port() -> Port {
     listener_port(&loopback_listener())
 }
@@ -174,8 +176,9 @@ fn zero_timeout_returns_promptly() {
     let results = scan(&config).unwrap();
     let elapsed = started.elapsed();
 
-    // Whether the loopback SYN/ACK is read before the receiver notices sending is done is a race,
-    // so the open port may or may not be reported; the scan must just not hang or misreport.
+    // Whether the loopback SYN/ACK is read before the receiver notices sending is
+    // done is a race, so the open port may or may not be reported; the scan must
+    // just not hang or misreport.
     assert!(
         elapsed < Duration::from_secs(2),
         "a zero-timeout scan should stop shortly after sending, but took {elapsed:?}"

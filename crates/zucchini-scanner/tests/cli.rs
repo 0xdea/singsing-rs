@@ -129,10 +129,10 @@ fn rejects_timeout_above_maximum_before_scan() {
 
 #[test]
 fn accepts_maximum_timeout_in_library_validation() {
-    // The library checks the timeout before the probe count, so an oversized scan failing on the
-    // probe limit (rather than the timeout) proves the CLI's maximum passes the library's own
-    // check. It also fails before raw socket creation, so it can't start a real scan even when the
-    // tests run as root.
+    // The library checks the timeout before the probe count, so an oversized scan
+    // failing on the probe limit (rather than the timeout) proves the CLI's maximum
+    // passes the library's own check. It also fails before raw socket creation, so
+    // it can't start a real scan even when the tests run as root.
     let output = run(&[
         "-h",
         "192.168.2.0/23",

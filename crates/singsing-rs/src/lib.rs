@@ -39,31 +39,37 @@ use pnet::transport::{
 const PACKET_LEN: usize = 40;
 /// The receive buffer's length, reused for every packet read on the raw socket.
 ///
-/// The socket is a `Layer3` raw socket, so the kernel delivers every matching IPv4/TCP packet on
-/// the host to it, not just replies to this scan's own probes (unrelated packets are filtered out
-/// in userspace by `classify_response`). The buffer must therefore be large enough for the
-/// largest packet any such traffic could deliver, not just this scan's own `PACKET_LEN`-sized
-/// probes and replies: a too-small buffer silently truncates an oversized read rather than
-/// erroring. `1 MiB` comfortably exceeds the largest possible IPv4 packet (65,535 bytes).
+/// The socket is a `Layer3` raw socket, so the kernel delivers every matching
+/// IPv4/TCP packet on the host to it, not just replies to this scan's own
+/// probes (unrelated packets are filtered out in userspace by
+/// `classify_response`). The buffer must therefore be large enough for the
+/// largest packet any such traffic could deliver, not just this scan's own
+/// `PACKET_LEN`-sized probes and replies: a too-small buffer silently truncates
+/// an oversized read rather than erroring. `1 MiB` comfortably exceeds the
+/// largest possible IPv4 packet (65,535 bytes).
 const RECEIVE_BUFFER_LEN: usize = 1 << 20;
-/// The longest the receiver blocks on one read before re-checking whether sending is done.
+/// The longest the receiver blocks on one read before re-checking whether
+/// sending is done.
 const RECEIVE_POLL_INTERVAL: Duration = Duration::from_millis(100);
-/// The shortest read timeout the receiver can safely request (see `receive_wait`).
+/// The shortest read timeout the receiver can safely request (see
+/// `receive_wait`).
 const MIN_RECEIVE_WAIT: Duration = Duration::from_micros(1);
 
 /// The maximum number of probes to send during a scan.
 const MAX_PROBES: usize = 16_777_214;
 /// The maximum time to listen for late replies after the final probe.
 ///
-/// Replies stop arriving about a minute after a probe (the last SYN/ACK retransmission under
-/// Linux's default `tcp_synack_retries`), so this is a sanity cap that catches unit mistakes
-/// (e.g., milliseconds passed as seconds), while leaving room for unusual links. It also keeps
+/// Replies stop arriving about a minute after a probe (the last SYN/ACK
+/// retransmission under Linux's default `tcp_synack_retries`), so this is a
+/// sanity cap that catches unit mistakes (e.g., milliseconds passed as
+/// seconds), while leaving room for unusual links. It also keeps
 /// `Instant::now() + timeout` far from overflowing.
 const MAX_TIMEOUT: Duration = Duration::from_hours(1);
 
 /// The default packet bandwidth in KiB/s, used by [`ScanConfig::new`].
 const DEFAULT_BANDWIDTH_KIB: NonZeroU64 = NonZeroU64::new(15).unwrap();
-/// The first port of the IANA ephemeral range, from which the scan's source port is picked.
+/// The first port of the IANA ephemeral range, from which the scan's source
+/// port is picked.
 const EPHEMERAL_PORT_START: Port = Port::new(49152).unwrap();
 
 /// One minute duration.
@@ -77,8 +83,8 @@ const ONE_HOUR: Duration = Duration::from_hours(1);
 
 /// A TCP port number.
 ///
-/// Port zero is reserved and can't be scanned, so it is ruled out by the type itself rather than
-/// checked at scan time.
+/// Port zero is reserved and can't be scanned, so it is ruled out by the type
+/// itself rather than checked at scan time.
 ///
 /// # Examples
 ///
@@ -99,17 +105,19 @@ type SeqNum = u32;
 /// Maps each target host/port pair to its expected TCP sequence number.
 type ExpectedResponses = HashMap<(Ipv4Addr, Port), SeqNum>;
 
-/// The error type returned by [`scan_with_callback`]/[`scan_with_callbacks`]'s `on_result` and
-/// `on_progress` callbacks.
+/// The error type returned by [`scan_with_callback`]/[`scan_with_callbacks`]'s
+/// `on_result` and `on_progress` callbacks.
 ///
-/// Callbacks are caller-defined and can fail for reasons this crate can't enumerate in advance, so
-/// their error is boxed rather than typed.
+/// Callbacks are caller-defined and can fail for reasons this crate can't
+/// enumerate in advance, so their error is boxed rather than typed.
 pub type CallbackError = Box<dyn Error + Send + Sync>;
 
-/// Foreign types from `ipnet` that appear in this crate's public API (see [`TargetsError`]).
+/// Foreign types from `ipnet` that appear in this crate's public API (see
+/// [`TargetsError`]).
 ///
-/// Re-exported so callers can name them without adding `ipnet` as a separate direct dependency,
-/// and so that a semver-breaking `ipnet` upgrade shows up as a `singsing-rs` API change too.
+/// Re-exported so callers can name them without adding `ipnet` as a separate
+/// direct dependency, and so that a semver-breaking `ipnet` upgrade shows up as
+/// a `singsing-rs` API change too.
 pub use ipnet::{AddrParseError, Ipv4Net};
 
 /// An error resolving a network interface's IPv4 address.
@@ -121,7 +129,9 @@ pub use ipnet::{AddrParseError, Ipv4Net};
 ///
 /// let name = "singsing-rs-example-missing-interface";
 /// match interface_ipv4(name) {
-///     Err(InterfaceError::NotFound { name: actual }) => assert_eq!(actual, name),
+///     Err(InterfaceError::NotFound { name: actual }) => {
+///         assert_eq!(actual, name);
+///     }
 ///     other => panic!("unexpected result: {other:?}"),
 /// }
 /// ```
@@ -240,7 +250,8 @@ pub enum PortsError {
 /// use singsing_rs::{ScanConfig, ScanError, parse_ports, scan};
 /// use std::net::Ipv4Addr;
 ///
-/// let config = ScanConfig::new(Vec::new(), parse_ports("80")?, Ipv4Addr::LOCALHOST);
+/// let config =
+///     ScanConfig::new(Vec::new(), parse_ports("80")?, Ipv4Addr::LOCALHOST);
 /// assert!(matches!(scan(&config), Err(ScanError::EmptyScan)));
 /// # Ok::<(), singsing_rs::PortsError>(())
 /// ```
@@ -304,7 +315,8 @@ pub enum ScanError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum SendError {
-    /// The fixed-size SYN packet buffer could not be parsed back into an IPv4 packet.
+    /// The fixed-size SYN packet buffer could not be parsed back into an IPv4
+    /// packet.
     #[error("failed to construct IPv4 packet")]
     PacketConstruction,
     /// Sending a probe failed.
@@ -325,8 +337,9 @@ pub enum SendError {
 
 /// An error that stopped transmission after part of a scan was executed.
 ///
-/// `IncompleteScanError` has no public constructor; callers only ever obtain one from
-/// [`ScanError::Incomplete`], returned by [`scan`]/[`scan_with_callback`]/[`scan_with_callbacks`].
+/// `IncompleteScanError` has no public constructor; callers only ever obtain
+/// one from [`ScanError::Incomplete`], returned by
+/// [`scan`]/[`scan_with_callback`]/[`scan_with_callbacks`].
 ///
 /// # Examples
 ///
@@ -401,22 +414,24 @@ pub struct ScanConfig {
     pub source: Ipv4Addr,
     /// Approximate maximum packet bandwidth in KiB/s.
     ///
-    /// [`ScanConfig::new`] defaults this to 15 KiB/s, or approximately 384 probes per second
-    /// with the scanner's 40-byte packet accounting.
+    /// [`ScanConfig::new`] defaults this to 15 KiB/s, or approximately 384 probes
+    /// per second with the scanner's 40-byte packet accounting.
     pub bandwidth_kib: NonZeroU64,
     /// Time to listen for late replies after the final probe.
     ///
-    /// Capped at 1 hour: a larger value is rejected with [`ScanError::TimeoutTooLarge`] before any
-    /// packet is sent. Zero is allowed, and stops listening shortly after the final probe is
-    /// sent: replies already received while sending are returned, but a reply still unread when
-    /// listening stops is dropped. [`ScanConfig::new`] defaults this to 30 seconds.
+    /// Capped at 1 hour: a larger value is rejected with
+    /// [`ScanError::TimeoutTooLarge`] before any packet is sent. Zero is allowed,
+    /// and stops listening shortly after the final probe is sent: replies already
+    /// received while sending are returned, but a reply still unread when listening
+    /// stops is dropped. [`ScanConfig::new`] defaults this to 30 seconds.
     pub timeout: Duration,
     /// Whether RST responses should be returned.
     pub show_closed: bool,
 }
 
 impl ScanConfig {
-    /// Creates a configuration with 15 KiB/s bandwidth and a 30-second late-reply timeout.
+    /// Creates a configuration with 15 KiB/s bandwidth and a 30-second late-reply
+    /// timeout.
     ///
     /// # Examples
     ///
@@ -428,7 +443,8 @@ impl ScanConfig {
     /// const HTTPS: Port = Port::new(443).unwrap();
     ///
     /// let target = "192.168.2.10".parse::<Ipv4Addr>()?;
-    /// let mut config = ScanConfig::new(vec![target], vec![SSH, HTTPS], Ipv4Addr::LOCALHOST);
+    /// let ports = vec![SSH, HTTPS];
+    /// let mut config = ScanConfig::new(vec![target], ports, Ipv4Addr::LOCALHOST);
     /// config.show_closed = true;
     ///
     /// assert_eq!(config.bandwidth_kib.get(), 15);
@@ -482,7 +498,8 @@ impl ScanProgress {
 
     /// Estimates the time required to send the remaining probes.
     ///
-    /// Returns `None` before the first probe is sent, since no rate can be estimated yet.
+    /// Returns `None` before the first probe is sent, since no rate can be
+    /// estimated yet.
     #[must_use]
     pub fn estimated_remaining(self) -> Option<Duration> {
         let sent = u32::try_from(self.probes_sent).ok()?;
@@ -506,10 +523,11 @@ impl ScanProgress {
 /// const HTTPS: Port = Port::new(443).unwrap();
 ///
 /// let result = ScanResult::new(Ipv4Addr::LOCALHOST, HTTPS, PortState::Open);
+/// let (host, port) = (result.host, result.port);
 /// match result.state {
-///     PortState::Open => println!("{}:{} is open", result.host, result.port),
-///     PortState::Closed => println!("{}:{} is closed", result.host, result.port),
-///     _ => println!("{}:{} is some other state", result.host, result.port),
+///     PortState::Open => println!("{host}:{port} is open"),
+///     PortState::Closed => println!("{host}:{port} is closed"),
+///     _ => println!("{host}:{port} is some other state"),
 /// }
 /// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -578,14 +596,14 @@ pub fn interface_ipv4(name: &str) -> Result<Ipv4Addr, InterfaceError> {
 
 /// Expands an IPv4 address or CIDR into scan targets.
 ///
-/// Network and broadcast addresses are omitted for prefixes from `/0` through `/30`. Both
-/// addresses of a `/31` are included, as is the single address of a `/32`, matching
-/// [`Ipv4Net::hosts`].
+/// Network and broadcast addresses are omitted for prefixes from `/0` through
+/// `/30`. Both addresses of a `/31` are included, as is the single address of a
+/// `/32`, matching [`Ipv4Net::hosts`].
 ///
 /// # Errors
 ///
-/// Returns an error for malformed IPv4/CIDR input or a network containing more usable addresses
-/// than a `/8`.
+/// Returns an error for malformed IPv4/CIDR input or a network containing more
+/// usable addresses than a `/8`.
 ///
 /// # Examples
 ///
@@ -624,7 +642,8 @@ pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>, TargetsError> {
 ///
 /// # Errors
 ///
-/// Returns an error for empty items, reversed ranges, port zero, or values larger than 65535.
+/// Returns an error for empty items, reversed ranges, port zero, or values
+/// larger than 65535.
 ///
 /// # Examples
 ///
@@ -632,7 +651,8 @@ pub fn parse_targets(input: &str) -> Result<Vec<Ipv4Addr>, TargetsError> {
 /// use singsing_rs::{Port, PortsError, parse_ports};
 ///
 /// let ports = parse_ports("22,80,79-81")?;
-/// assert_eq!(ports.into_iter().map(Port::get).collect::<Vec<_>>(), [22, 79, 80, 81]);
+/// let numbers = ports.into_iter().map(Port::get).collect::<Vec<_>>();
+/// assert_eq!(numbers, [22, 79, 80, 81]);
 /// # Ok::<(), PortsError>(())
 /// ```
 pub fn parse_ports(input: &str) -> Result<Vec<Port>, PortsError> {
@@ -666,8 +686,9 @@ pub fn parse_ports(input: &str) -> Result<Vec<Port>, PortsError> {
             });
         }
 
-        // Insert the whole range at once. `NonZero` integers can't form a range, so iterate over
-        // the raw values; every one is at least `start`, so `Port::new` never drops any of them.
+        // Insert the whole range at once. `NonZero` integers can't form a range, so
+        // iterate over the raw values; every one is at least `start`, so `Port::new`
+        // never drops any of them.
         ports.extend((start.get()..=end.get()).filter_map(Port::new));
     }
 
@@ -694,7 +715,8 @@ pub fn parse_ports(input: &str) -> Result<Vec<Port>, PortsError> {
 /// let ports = ports_from_services(&path)?;
 /// fs::remove_file(&path)?;
 ///
-/// assert_eq!(ports.into_iter().map(Port::get).collect::<Vec<_>>(), [22, 80]);
+/// let numbers = ports.into_iter().map(Port::get).collect::<Vec<_>>();
+/// assert_eq!(numbers, [22, 80]);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<Port>, PortsError> {
@@ -734,20 +756,23 @@ pub fn ports_from_services(path: impl AsRef<Path>) -> Result<Vec<Port>, PortsErr
 
 /// Executes a Linux IPv4 SYN scan.
 ///
-/// No reply means filtered or unreachable and therefore produces no result. Raw sockets require
-/// root or `CAP_NET_RAW`.
+/// No reply means filtered or unreachable and therefore produces no result. Raw
+/// sockets require root or `CAP_NET_RAW`.
 ///
 /// # Errors
 ///
-/// Returns an error for an empty or excessively large scan, invalid bandwidth, an excessive
-/// timeout, duplicate targets or ports, raw socket permission failures, packet send failures,
-/// or receiver failures. A transmission-phase failure is returned as [`IncompleteScanError`],
-/// which retains results received for successfully sent probes.
+/// Returns an error for an empty or excessively large scan, invalid bandwidth,
+/// an excessive timeout, duplicate targets or ports, raw socket permission
+/// failures, packet send failures, or receiver failures. A transmission-phase
+/// failure is returned as [`IncompleteScanError`], which retains results
+/// received for successfully sent probes.
 ///
 /// # Examples
 ///
 /// ```no_run
-/// use singsing_rs::{ScanConfig, interface_ipv4, parse_ports, parse_targets, scan};
+/// use singsing_rs::{
+///     ScanConfig, interface_ipv4, parse_ports, parse_targets, scan,
+/// };
 ///
 /// let source = interface_ipv4("eth0")?;
 /// let targets = parse_targets("192.168.2.10")?;
@@ -764,18 +789,20 @@ pub fn scan(config: &ScanConfig) -> Result<Vec<ScanResult>, ScanError> {
 
 /// Executes a SYN scan and calls `on_result` as each response arrives.
 ///
-/// Results are still returned in sorted order after the scan. The callback is useful for
-/// interactive clients that need immediate per-result feedback.
+/// Results are still returned in sorted order after the scan. The callback is
+/// useful for interactive clients that need immediate per-result feedback.
 ///
 /// # Errors
 ///
-/// Returns the same errors as [`scan`], along with errors returned by `on_result`.
+/// Returns the same errors as [`scan`], along with errors returned by
+/// `on_result`.
 ///
 /// # Examples
 ///
 /// ```no_run
 /// use singsing_rs::{
-///     ScanConfig, interface_ipv4, parse_ports, parse_targets, scan_with_callback,
+///     ScanConfig, interface_ipv4, parse_ports, parse_targets,
+///     scan_with_callback,
 /// };
 ///
 /// let source = interface_ipv4("eth0")?;
@@ -797,20 +824,22 @@ pub fn scan_with_callback(
 
 /// Executes a SYN scan with callbacks for results and sending progress.
 ///
-/// `on_result` runs as each response arrives. It needs to be `Send + 'static` because it gets
-/// moved into the spawned receiver thread. While probes are being sent, `on_progress` runs every
-/// minute for the first ten minutes, every ten minutes through the first hour, and every
-/// thirty minutes thereafter.
+/// `on_result` runs as each response arrives. It needs to be `Send + 'static`
+/// because it gets moved into the spawned receiver thread. While probes are
+/// being sent, `on_progress` runs every minute for the first ten minutes, every
+/// ten minutes through the first hour, and every thirty minutes thereafter.
 ///
 /// # Errors
 ///
-/// Returns the same errors as [`scan`], along with errors returned by either callback.
+/// Returns the same errors as [`scan`], along with errors returned by either
+/// callback.
 ///
 /// # Examples
 ///
 /// ```no_run
 /// use singsing_rs::{
-///     ScanConfig, interface_ipv4, parse_ports, parse_targets, scan_with_callbacks,
+///     ScanConfig, interface_ipv4, parse_ports, parse_targets,
+///     scan_with_callbacks,
 /// };
 ///
 /// let source = interface_ipv4("eth0")?;
@@ -867,11 +896,12 @@ pub fn scan_with_callbacks(
 
     // Compute the send interval based on the requested bandwidth.
     //
-    // Unlike `timeout`, `bandwidth_kib` has no upper sanity limit, only the overflow guard below
-    // (~u64::MAX / 1024 KiB/s). An extreme but non-overflowing value drives `packets_per_second`
-    // high enough that this division floors to zero, making `interval` `Duration::ZERO`; the send
-    // loop then never sleeps, so the practical effect is unthrottled sending rather than a panic
-    // or incorrect behavior, so no cap is needed.
+    // Unlike `timeout`, `bandwidth_kib` has no upper sanity limit, only the
+    // overflow guard below (~u64::MAX / 1024 KiB/s). An extreme but non-overflowing
+    // value drives `packets_per_second` high enough that this division floors to
+    // zero, making `interval` `Duration::ZERO`; the send loop then never sleeps, so
+    // the practical effect is unthrottled sending rather than a panic or incorrect
+    // behavior, so no cap is needed.
     let bytes_per_second = config
         .bandwidth_kib
         .get()
@@ -882,9 +912,10 @@ pub fn scan_with_callbacks(
 
     // Send loop.
     //
-    // Runs as an inline closure so a mid-loop error can be captured without immediately returning
-    // from the outer function. This way, a send failure doesn't abort the receiver early, but just
-    // gets folded into the final error once both sides are done, so partial results are not lost.
+    // Runs as an inline closure so a mid-loop error can be captured without
+    // immediately returning from the outer function. This way, a send failure
+    // doesn't abort the receiver early, but just gets folded into the final error
+    // once both sides are done, so partial results are not lost.
     let mut next_send = Instant::now();
     let started = next_send;
     let mut next_progress = ONE_MINUTE;
@@ -892,7 +923,7 @@ pub fn scan_with_callbacks(
     let send_result = (|| -> Result<(), SendError> {
         #[expect(
             clippy::iter_over_hash_type,
-            reason = "randomized `HashMap` iteration order is deliberate; see README's Transmission order section"
+            reason = "randomized `HashMap` order is deliberate (README: Transmission order)"
         )]
         for (&(host, port), &sequence) in expected.iter() {
             // Build one TCP SYN packet and send it.
@@ -916,9 +947,10 @@ pub fn scan_with_callbacks(
 
             // Track progress and invoke the callback if necessary.
             //
-            // Unlike a failing `on_result` on the receive side, a failing `on_progress` here stops
-            // the send loop like any other send-loop error, so it's preserved as `SendError::Callback`
-            // inside `IncompleteScanError` (with partial results and counts), not discarded.
+            // Unlike a failing `on_result` on the receive side, a failing `on_progress`
+            // here stops the send loop like any other send-loop error, so it's preserved as
+            // `SendError::Callback` inside `IncompleteScanError` (with partial results and
+            // counts), not discarded.
             let now = Instant::now();
             let elapsed = now.duration_since(started);
             if elapsed >= next_progress {
@@ -937,14 +969,15 @@ pub fn scan_with_callbacks(
 
     // Whatever happens, unconditionally mark the send loop as done.
     //
-    // Everything this thread wrote to memory before this store is guaranteed to be visible to the
-    // receive thread that later does an `Acquire` load on `done`.
+    // Everything this thread wrote to memory before this store is guaranteed to be
+    // visible to the receive thread that later does an `Acquire` load on `done`.
     done.store(true, Ordering::Release);
 
     // Join the receive thread and collect the results.
     //
-    // The first `?` (via `map_err`) converts the panic payload to a `ScanError::ReceiverPanicked`.
-    // The second `?` propagates any other error from the receive thread.
+    // The first `?` (via `map_err`) converts the panic payload to a
+    // `ScanError::ReceiverPanicked`. The second `?` propagates any other error from
+    // the receive thread.
     let mut results = receive_thread.join().map_err(|payload| {
         ScanError::ReceiverPanicked(describe_panic_payload(&*payload).to_owned())
     })??;
@@ -952,7 +985,8 @@ pub fn scan_with_callbacks(
     // Sort the results by host and port.
     results.sort_unstable_by_key(|result| (result.host, result.port));
 
-    // If the send loop failed mid-scan, return an `IncompleteScanError` with the collected results.
+    // If the send loop failed mid-scan, return an `IncompleteScanError` with the
+    // collected results.
     if let Err(error) = send_result {
         return Err(ScanError::Incomplete(IncompleteScanError {
             source: error,
@@ -967,8 +1001,9 @@ pub fn scan_with_callbacks(
 
 /// Returns the number of usable addresses in an IPv4 network.
 ///
-/// Both addresses of a `/31` count as usable and a `/32` counts as one; otherwise the network
-/// and broadcast addresses are excluded. Returns `None` on prefix-length arithmetic overflow.
+/// Both addresses of a `/31` count as usable and a `/32` counts as one;
+/// otherwise the network and broadcast addresses are excluded. Returns `None`
+/// on prefix-length arithmetic overflow.
 fn usable_target_count(network: Ipv4Net) -> Option<usize> {
     let host_bits = 32_u32.checked_sub(u32::from(network.prefix_len()))?;
 
@@ -981,8 +1016,9 @@ fn usable_target_count(network: Ipv4Net) -> Option<usize> {
 
 /// Parses a single TCP port, rejecting port zero.
 fn parse_port(input: &str) -> Result<Port, PortsError> {
-    // Parse as a plain `u16` first, so that port zero gets its own `PortZero` error rather than
-    // the generic parse error `NonZeroU16`'s own `FromStr` would return.
+    // Parse as a plain `u16` first, so that port zero gets its own `PortZero` error
+    // rather than the generic parse error `NonZeroU16`'s own `FromStr` would
+    // return.
     let port = input
         .parse::<u16>()
         .map_err(|source| PortsError::InvalidPort {
@@ -998,10 +1034,11 @@ fn validate_scan(config: &ScanConfig) -> Result<usize, ScanError> {
     validate_probe_count(config.targets.len(), config.ports.len(), config.timeout)
 }
 
-/// Validates scan size and configuration limits, returning the total probe count.
+/// Validates scan size and configuration limits, returning the total probe
+/// count.
 ///
-/// Rejects an empty target or port list, a late-reply timeout above [`MAX_TIMEOUT`], and a
-/// target * port product above [`MAX_PROBES`].
+/// Rejects an empty target or port list, a late-reply timeout above
+/// [`MAX_TIMEOUT`], and a target * port product above [`MAX_PROBES`].
 fn validate_probe_count(
     target_count: usize,
     port_count: usize,
@@ -1030,30 +1067,34 @@ fn validate_probe_count(
     Ok(probe_count)
 }
 
-/// Picks a random ephemeral TCP source port in the `49152..=65535` range, reused for every probe in the scan.
+/// Picks a random ephemeral TCP source port in the `49152..=65535` range,
+/// reused for every probe in the scan.
 #[expect(
     clippy::as_conversions,
     reason = "`nonce() % 16384` is always in `0..16384`, so it always fits in a `u16`"
 )]
 fn source_port() -> Port {
-    // `49152 + 16383` is exactly `u16::MAX`, so the addition never actually saturates.
+    // `49152 + 16383` is exactly `u16::MAX`, so the addition never actually
+    // saturates.
     EPHEMERAL_PORT_START.saturating_add((nonce() % 16384) as u16)
 }
 
 /// Returns a per-scan random nonce derived from the current sub-second time.
 ///
-/// This nonce is not cryptographically robust, but it is sufficient for our purposes.
+/// This nonce is not cryptographically robust, but it is sufficient for our
+/// purposes.
 fn nonce() -> u32 {
-    // A system clock set before the Unix epoch is deliberately ignored: it only makes the nonce
-    // predictable (zero), which correlation tolerates, so it isn't worth failing the scan over.
+    // A system clock set before the Unix epoch is deliberately ignored: it only
+    // makes the nonce predictable (zero), which correlation tolerates, so it isn't
+    // worth failing the scan over.
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .subsec_nanos()
 }
 
-/// Builds the expected-response table mapping each target/port pair to its deterministic sequence
-/// number.
+/// Builds the expected-response table mapping each target/port pair to its
+/// deterministic sequence number.
 ///
 /// Returns [`ScanError::DuplicatePair`] for a duplicate target/port pair.
 fn expected_responses(
@@ -1076,12 +1117,14 @@ fn expected_responses(
     Ok(expected)
 }
 
-/// Derives the deterministic expected TCP sequence number for a host/port pair, given the nonce.
+/// Derives the deterministic expected TCP sequence number for a host/port pair,
+/// given the nonce.
 ///
-/// This allows to correlate a reply with a probe, without the need to track live per-connection
-/// state in memory. This classic stateless-SYN-scanning trick is robust against accidental
-/// misclassification, but it does not provide any protection against a deliberately hostile
-/// target trying to defeat correlation.
+/// This allows to correlate a reply with a probe, without the need to track
+/// live per-connection state in memory. This classic stateless-SYN-scanning
+/// trick is robust against accidental misclassification, but it does not
+/// provide any protection against a deliberately hostile target trying to
+/// defeat correlation.
 fn sequence(host: Ipv4Addr, port: Port, nonce: u32) -> SeqNum {
     u32::from(host)
         .rotate_left(13)
@@ -1101,7 +1144,7 @@ fn syn_packet(
 
     #[expect(
         clippy::expect_used,
-        reason = "`bytes` is exactly `PACKET_LEN`, sized to fit one IPv4 header and one TCP header, so packet construction cannot fail"
+        reason = "`bytes` is exactly one IPv4 plus one TCP header, so this cannot fail"
     )]
     let mut ipv4 = MutableIpv4Packet::new(&mut bytes).expect("fixed-size IPv4 packet");
     ipv4.set_version(4);
@@ -1119,7 +1162,7 @@ fn syn_packet(
 
     #[expect(
         clippy::expect_used,
-        reason = "`bytes` is exactly `PACKET_LEN`, sized to fit one IPv4 header and one TCP header, so packet construction cannot fail"
+        reason = "the IPv4 payload is exactly one TCP header, so this cannot fail"
     )]
     let mut tcp = MutableTcpPacket::new(ipv4.payload_mut()).expect("fixed-size TCP packet");
     tcp.set_source(source_port.get());
@@ -1144,8 +1187,8 @@ fn advance_progress_deadline(mut deadline: Duration, elapsed: Duration) -> Durat
 
 /// Returns the next progress deadline after `previous`.
 ///
-/// Follows a growing schedule: every minute for the first ten minutes, every ten minutes through
-/// the first hour, then every thirty minutes thereafter.
+/// Follows a growing schedule: every minute for the first ten minutes, every
+/// ten minutes through the first hour, then every thirty minutes thereafter.
 fn next_progress_deadline(previous: Duration) -> Duration {
     let interval = if previous < TEN_MINUTES {
         ONE_MINUTE
@@ -1173,8 +1216,8 @@ struct ReceiveConfig<'a> {
     timeout: Duration,
 }
 
-/// Reads and classifies raw packets until sending is done and the late-reply timeout elapses,
-/// returning accepted results in arrival order.
+/// Reads and classifies raw packets until sending is done and the late-reply
+/// timeout elapses, returning accepted results in arrival order.
 fn receive(
     receiver: &mut TransportReceiver,
     config: &ReceiveConfig<'_>,
@@ -1220,9 +1263,10 @@ fn receive(
             continue;
         };
 
-        // Call the user-defined callback with the accepted result and then add it to the results
-        // in raw arrival order. Unlike a send-loop failure, a failing callback here currently
-        // discards `results` entirely rather than preserving it via `IncompleteScanError`.
+        // Call the user-defined callback with the accepted result and then add it to
+        // the results in raw arrival order. Unlike a send-loop failure, a failing
+        // callback here currently discards `results` entirely rather than preserving it
+        // via `IncompleteScanError`.
         on_result(result).map_err(ScanError::Callback)?;
         results.push(result);
     }
@@ -1230,14 +1274,16 @@ fn receive(
     Ok(results)
 }
 
-/// Returns how long the next packet read may block, or `None` once the late-reply `deadline` has
-/// effectively passed.
+/// Returns how long the next packet read may block, or `None` once the
+/// late-reply `deadline` has effectively passed.
 ///
-/// Before sending is done (no `deadline` yet), reads block for [`RECEIVE_POLL_INTERVAL`] so the
-/// done flag keeps getting re-checked; afterwards, for whatever remains until the deadline, capped
-/// at the same interval. A remaining time below [`MIN_RECEIVE_WAIT`] counts as the deadline having
-/// passed: `pnet` applies the wait as `SO_RCVTIMEO`, truncated to whole microseconds, and a zero
-/// `SO_RCVTIMEO` makes the read block indefinitely instead of returning immediately.
+/// Before sending is done (no `deadline` yet), reads block for
+/// [`RECEIVE_POLL_INTERVAL`] so the done flag keeps getting re-checked;
+/// afterwards, for whatever remains until the deadline, capped at the same
+/// interval. A remaining time below [`MIN_RECEIVE_WAIT`] counts as the deadline
+/// having passed: `pnet` applies the wait as `SO_RCVTIMEO`, truncated to whole
+/// microseconds, and a zero `SO_RCVTIMEO` makes the read block indefinitely
+/// instead of returning immediately.
 fn receive_wait(deadline: Option<Instant>, now: Instant) -> Option<Duration> {
     let Some(deadline) = deadline else {
         return Some(RECEIVE_POLL_INTERVAL);
@@ -1249,9 +1295,9 @@ fn receive_wait(deadline: Option<Instant>, now: Instant) -> Option<Duration> {
 
 /// Correlates one received IPv4 packet against the expected-response table.
 ///
-/// Returns `Some` only for a not-yet-seen reply whose destination address and port match the
-/// scan's source, whose source host/port matches an actual probe, and whose acknowledgement
-/// number matches the expected sequence.
+/// Returns `Some` only for a not-yet-seen reply whose destination address and
+/// port match the scan's source, whose source host/port matches an actual
+/// probe, and whose acknowledgement number matches the expected sequence.
 fn classify_response(
     ipv4: &Ipv4Packet<'_>,
     expected: &ExpectedResponses,
@@ -1265,8 +1311,8 @@ fn classify_response(
     }
 
     let tcp = TcpPacket::new(ipv4.payload())?;
-    // A reply from port zero can't correspond to any probe, so it's rejected like any other
-    // unexpected source.
+    // A reply from port zero can't correspond to any probe, so it's rejected like
+    // any other unexpected source.
     let key = (ipv4.get_source(), Port::new(tcp.get_source())?);
     let (host, port) = key;
     let sequence = expected.get(&key)?;
@@ -1295,8 +1341,8 @@ fn classify_response(
 
 /// Extracts a human-readable message from a thread panic payload.
 ///
-/// Falls back to a generic message when the payload isn't the common `&str` or `String` shape
-/// produced by `panic!`.
+/// Falls back to a generic message when the payload isn't the common `&str` or
+/// `String` shape produced by `panic!`.
 fn describe_panic_payload(payload: &(dyn Any + Send)) -> &str {
     payload
         .downcast_ref::<&str>()
@@ -1325,8 +1371,8 @@ mod tests {
         numbers.iter().copied().map(port).collect()
     }
 
-    /// Builds a raw 40-byte IPv4/TCP reply packet from `remote` to `local` with the given
-    /// acknowledgement number and TCP flags.
+    /// Builds a raw 40-byte IPv4/TCP reply packet from `remote` to `local` with the
+    /// given acknowledgement number and TCP flags.
     fn response_packet(
         remote: Ipv4Addr,
         local: Ipv4Addr,
@@ -1353,7 +1399,8 @@ mod tests {
         bytes
     }
 
-    /// Parses raw `bytes` as an IPv4 packet and classifies it with [`classify_response`].
+    /// Parses raw `bytes` as an IPv4 packet and classifies it with
+    /// [`classify_response`].
     fn classify_packet(
         bytes: &[u8],
         expected: &ExpectedResponses,
@@ -1366,7 +1413,8 @@ mod tests {
         classify_response(&ipv4, expected, source, source_port, show_closed, seen)
     }
 
-    /// Returns a unique temporary services file path, scoped by process ID and a per-test counter.
+    /// Returns a unique temporary services file path, scoped by process ID and a
+    /// per-test counter.
     fn services_path() -> PathBuf {
         static NEXT_FILE: AtomicUsize = AtomicUsize::new(0);
 
@@ -1374,7 +1422,8 @@ mod tests {
         env::temp_dir().join(format!("singsing-rs-services-{}-{number}", process::id()))
     }
 
-    /// Writes `contents` to a temporary services file, reads its TCP ports, and removes the file.
+    /// Writes `contents` to a temporary services file, reads its TCP ports, and
+    /// removes the file.
     fn services_from(contents: &str) -> anyhow::Result<Vec<Port>> {
         let path = services_path();
         fs::write(&path, contents)?;

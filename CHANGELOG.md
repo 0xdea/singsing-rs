@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Lower the maximum `ScanConfig::timeout` from 24 hours to 1 hour, so larger values are now rejected (breaking).
 - Lower the maximum `zucchini` `--timeout` from 86,400 to 300 seconds (5 minutes).
+- Improve code style.
 
 ## [0.2.0] - 2026-09-27
 

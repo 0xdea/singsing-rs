@@ -18,7 +18,8 @@ fn address(input: &str) -> Ipv4Addr {
     input.parse().expect("test address should be valid")
 }
 
-/// Runs a scan that is expected to fail during validation and returns its error message chain.
+/// Runs a scan that is expected to fail during validation and returns its error
+/// message chain.
 fn scan_error(config: &ScanConfig) -> String {
     format!(
         "{:#}",

@@ -31,21 +31,24 @@ const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 /// Package authors.
 const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 
-/// The default `--bandwidth` in KiB/s, matching the library's [`ScanConfig::new`] default.
+/// The default `--bandwidth` in KiB/s, matching the library's
+/// [`ScanConfig::new`] default.
 const DEFAULT_BANDWIDTH_KIB: NonZeroU64 = NonZeroU64::new(15).unwrap();
 
 /// The maximum `--timeout` in seconds (5 minutes).
 ///
-/// Late replies stop arriving about a minute after a probe (the last SYN/ACK retransmission under
-/// Linux's default `tcp_synack_retries`), so waiting longer only idles the scanner. This is
-/// stricter than the library's own 1-hour cap on [`ScanConfig::timeout`], which is a sanity limit
-/// rather than a practical one.
+/// Late replies stop arriving about a minute after a probe (the last SYN/ACK
+/// retransmission under Linux's default `tcp_synack_retries`), so waiting
+/// longer only idles the scanner. This is stricter than the library's own
+/// 1-hour cap on [`ScanConfig::timeout`], which is a sanity limit rather than a
+/// practical one.
 const MAX_TIMEOUT_SECS: u64 = 5 * 60;
 
 /// IPv4 scan targets parsed from a `--host` argument.
 ///
-/// Wrapped in a newtype so clap treats a single `--host` occurrence as one parsed value rather
-/// than inferring multi-occurrence behavior from a bare `Vec<Ipv4Addr>` field type.
+/// Wrapped in a newtype so clap treats a single `--host` occurrence as one
+/// parsed value rather than inferring multi-occurrence behavior from a bare
+/// `Vec<Ipv4Addr>` field type.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Targets(Vec<Ipv4Addr>);
 
@@ -169,8 +172,8 @@ fn run() -> anyhow::Result<()> {
     write_done_summary(probes, started.elapsed().as_secs_f64())
 }
 
-/// Adapts an `anyhow::Error` from a `write_*` helper into the boxed error type the scanning
-/// library's callbacks expect.
+/// Adapts an `anyhow::Error` from a `write_*` helper into the boxed error type
+/// the scanning library's callbacks expect.
 fn to_boxed_error(error: &anyhow::Error) -> CallbackError {
     format!("{error:#}").into()
 }
@@ -193,7 +196,8 @@ fn write_banner_to(output: &mut impl Write) -> anyhow::Result<()> {
     .context("failed to write program banner")
 }
 
-/// Writes the scan summary to stderr and flushes the output stream before the scan starts.
+/// Writes the scan summary to stderr and flushes the output stream before the
+/// scan starts.
 fn write_scan_summary(probes: usize, interface: &str, source: Ipv4Addr) -> anyhow::Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
@@ -237,8 +241,8 @@ fn write_done_summary_to(
     .context("failed to write scan completion")
 }
 
-/// Writes the incomplete scan summary to stderr and flushes the output stream before the partial
-/// results that follow.
+/// Writes the incomplete scan summary to stderr and flushes the output stream
+/// before the partial results that follow.
 fn write_incomplete_summary(probes_sent: usize, total_probes: usize) -> anyhow::Result<()> {
     let stderr = io::stderr();
     let mut output = stderr.lock();
@@ -281,7 +285,8 @@ fn write_results_to(output: &mut impl Write, results: &[ScanResult]) -> anyhow::
     Ok(())
 }
 
-/// Writes a verbose scan result to stdout and flushes the output stream for live feedback.
+/// Writes a verbose scan result to stdout and flushes the output stream for
+/// live feedback.
 fn write_verbose_result(result: ScanResult) -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
@@ -307,7 +312,8 @@ fn write_result_to(
         .context("failed to write scan result")
 }
 
-/// Writes the scan progress to stderr and flushes the output stream for live feedback.
+/// Writes the scan progress to stderr and flushes the output stream for live
+/// feedback.
 fn write_progress(progress: ScanProgress) -> anyhow::Result<()> {
     let line = format_progress(progress, Local::now());
     let stderr = io::stderr();
@@ -505,8 +511,8 @@ mod tests {
             parse_timeout("301").is_err(),
             "a timeout above the maximum should be rejected"
         );
-        // That the maximum also passes the library's own (private) cap is checked end to end by
-        // the `accepts_maximum_timeout_in_library_validation` CLI test.
+        // That the maximum also passes the library's own (private) cap is checked end
+        // to end by the `accepts_maximum_timeout_in_library_validation` CLI test.
         assert!(
             Arguments::command()
                 .render_help()

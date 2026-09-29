@@ -37,12 +37,14 @@ fn listener_port(listener: &TcpListener) -> Port {
     Port::new(port).expect("a bound listener's port should never be zero")
 }
 
-/// Returns a loopback port that was free a moment ago and has no listener bound to it.
+/// Returns a loopback port that was free a moment ago and has no listener bound
+/// to it.
 fn unused_loopback_port() -> Port {
     listener_port(&loopback_listener())
 }
 
-/// Runs a fast, short-timeout `zucchini` loopback scan of `port` with any extra arguments.
+/// Runs a fast, short-timeout `zucchini` loopback scan of `port` with any extra
+/// arguments.
 fn run(port: Port, extra_arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_zucchini"))
         .args([
