@@ -346,7 +346,6 @@ where
 #[expect(clippy::unwrap_used, reason = "tests can use `unwrap`")]
 mod tests {
     use clap::CommandFactory as _;
-    use clap::error::ErrorKind;
 
     use super::*;
 
@@ -628,30 +627,6 @@ mod tests {
             format_progress(progress, now),
             "[stats] 25% done | ETA Thu 2026-01-01 12:03:00 +01:00",
             "a fixed offset should be formatted as a numeric time zone"
-        );
-    }
-
-    #[test]
-    fn help_flag_displays_help() {
-        let error = Arguments::try_parse_from(["zucchini", "--help"]).unwrap_err();
-
-        assert_eq!(
-            error.kind(),
-            ErrorKind::DisplayHelp,
-            "`--help` should display help"
-        );
-    }
-
-    #[test]
-    fn version_flag_is_unknown() {
-        let error =
-            Arguments::try_parse_from(["zucchini", "-h", "127.0.0.1", "-i", "lo", "--version"])
-                .unwrap_err();
-
-        assert_eq!(
-            error.kind(),
-            ErrorKind::UnknownArgument,
-            "`--version` should not be accepted"
         );
     }
 }

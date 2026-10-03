@@ -8,7 +8,7 @@
 
 use std::net::Ipv4Addr;
 
-use singsing_rs::{Port, ScanConfig, parse_targets, scan};
+use singsing_rs::{Port, ScanConfig, scan};
 
 /// The port used by tests that only need one.
 const HTTPS: Port = Port::new(443).unwrap();
@@ -69,17 +69,5 @@ fn rejects_duplicate_targets_and_ports() {
     assert!(
         scan_error(&duplicate_ports).contains("targets and ports must be unique"),
         "duplicate ports should be rejected"
-    );
-}
-
-#[test]
-fn rejects_oversized_cidr_without_expanding_it() {
-    let error = parse_targets("10.0.0.0/7").expect_err("a /7 should exceed the target limit");
-
-    assert!(
-        error
-            .to_string()
-            .contains("split networks larger than a /8"),
-        "the error message should suggest splitting the network"
     );
 }

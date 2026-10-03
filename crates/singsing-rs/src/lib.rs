@@ -2069,24 +2069,19 @@ mod tests {
             ),
             "a scan without ports should be rejected"
         );
+        let oversized_timeout = MAX_TIMEOUT + Duration::from_secs(1);
+        let error = validate_probe_count(1, 1, oversized_timeout).unwrap_err();
         assert!(
             matches!(
-                validate_probe_count(1, 1, MAX_TIMEOUT + Duration::from_secs(1)),
-                Err(ScanError::TimeoutTooLarge { max, .. }) if max == MAX_TIMEOUT
+                error,
+                ScanError::TimeoutTooLarge { timeout: actual, max }
+                    if actual == oversized_timeout && max == MAX_TIMEOUT
             ),
             "a timeout above `MAX_TIMEOUT` should be rejected"
         );
-    }
-
-    #[test]
-    fn timeout_too_large_reports_both_durations() {
-        let timeout = MAX_TIMEOUT + Duration::from_secs(1);
-
-        let error = validate_probe_count(1, 1, timeout).unwrap_err();
-
         assert_eq!(
             error.to_string(),
-            format!("timeout of {timeout:?} exceeds the maximum of {MAX_TIMEOUT:?}"),
+            format!("timeout of {oversized_timeout:?} exceeds the maximum of {MAX_TIMEOUT:?}"),
             "the error message should include both the requested and maximum timeout"
         );
     }
@@ -2232,25 +2227,17 @@ zero            0/tcp
     }
 
     #[test]
-    fn describes_str_panic_payload() {
+    fn describes_panic_payloads() {
         assert_eq!(
             describe_panic_payload(&"boom"),
             "boom",
             "a `&str` payload should be returned as is"
         );
-    }
-
-    #[test]
-    fn describes_string_panic_payload() {
         assert_eq!(
             describe_panic_payload(&String::from("boom")),
             "boom",
             "a `String` payload should be returned as a `&str`"
         );
-    }
-
-    #[test]
-    fn describes_unrecognized_panic_payload() {
         assert_eq!(
             describe_panic_payload(&42_i32),
             "unknown panic payload",
@@ -2328,14 +2315,6 @@ zero            0/tcp
             over_complete.estimated_remaining(),
             Some(Duration::ZERO),
             "more probes sent than total should saturate to nothing remaining"
-        );
-    }
-
-    #[test]
-    fn probe_limit_accommodates_single_port_slash_8() {
-        assert_eq!(
-            MAX_PROBES, 16_777_214,
-            "the probe limit should equal the usable addresses of a /8"
         );
     }
 

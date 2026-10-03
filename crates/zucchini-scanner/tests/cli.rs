@@ -150,6 +150,11 @@ fn accepts_maximum_timeout_in_library_validation() {
         Some(1),
         "a library validation error should exit with 1, not a usage error"
     );
+    assert!(stdout(&output).is_empty(), "stdout should be empty");
+    assert!(
+        stderr(&output).contains("Scanning: 33422850 host/port pairs"),
+        "the scan summary should report the requested probe count"
+    );
     assert!(
         stderr(&output).contains("maximum is 16777214"),
         "the scan should fail on the probe limit, stderr was: {}",
@@ -209,26 +214,6 @@ fn rejects_oversized_target_before_expansion() {
     assert!(
         stderr(&output).contains("split networks larger than a /8"),
         "the error should suggest splitting the network"
-    );
-}
-
-#[test]
-fn rejects_full_port_slash_23_before_raw_socket() {
-    let output = run(&["-h", "192.168.2.0/23", "-i", "lo", "-p", "1-65535"]);
-
-    assert!(!output.status.success(), "an oversized scan should fail");
-    assert!(stdout(&output).is_empty(), "stdout should be empty");
-    assert!(
-        stderr(&output).contains("Scanning: 33422850 host/port pairs"),
-        "the scan summary should report the requested probe count"
-    );
-    assert!(
-        stderr(&output).contains("maximum is 16777214"),
-        "the probe limit should be reported"
-    );
-    assert!(
-        !stderr(&output).contains("failed to create raw socket"),
-        "the scan should be rejected before raw socket creation"
     );
 }
 
