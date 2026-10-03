@@ -2094,18 +2094,20 @@ mod tests {
         let unique = ScanConfig::new(vec![host], ports(&[80, 443]), host);
 
         assert!(
-            expected_responses(&duplicate_targets, 1, 2)
-                .unwrap_err()
-                .to_string()
-                .contains("must be unique"),
-            "duplicate targets should be rejected"
+            matches!(
+                expected_responses(&duplicate_targets, 1, 2),
+                Err(ScanError::DuplicatePair { host: actual_host, port: actual_port })
+                    if actual_host == host && actual_port == port(443)
+            ),
+            "duplicate targets should be rejected, reporting the duplicated pair"
         );
         assert!(
-            expected_responses(&duplicate_ports, 1, 2)
-                .unwrap_err()
-                .to_string()
-                .contains("must be unique"),
-            "duplicate ports should be rejected"
+            matches!(
+                expected_responses(&duplicate_ports, 1, 2),
+                Err(ScanError::DuplicatePair { host: actual_host, port: actual_port })
+                    if actual_host == host && actual_port == port(443)
+            ),
+            "duplicate ports should be rejected, reporting the duplicated pair"
         );
         assert_eq!(
             expected_responses(&unique, 1, 2).unwrap().len(),
