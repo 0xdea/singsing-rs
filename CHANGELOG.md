@@ -9,16 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Lower the maximum `ScanConfig::timeout` from 24 hours to 1 hour, so larger values are now rejected (breaking).
+- **Breaking:** lower the maximum `ScanConfig::timeout` from 24 hours to 1 hour, so larger values are now rejected.
 - Lower the maximum `zucchini` `--timeout` from 86,400 to 300 seconds (5 minutes).
 - Improve code style.
+- Update dependencies.
 
 ## [0.2.0] - 2026-09-27
 
 ### Changed
 
-- Change `ScanConfig::bandwidth_kib` to `NonZeroU64`, so a zero bandwidth can no longer be configured (breaking).
-- Change `Port` to `NonZeroU16`, so port zero can no longer be scanned via a hand-built `ScanConfig` (breaking).
+- **Breaking:** change `ScanConfig::bandwidth_kib` to `NonZeroU64`, so a zero bandwidth can no longer be configured.
+- **Breaking:** Change `Port` to `NonZeroU16`, so port zero can no longer be scanned via a hand-built `ScanConfig`.
 - Reject a `zucchini` `--timeout` above 86,400 seconds (24 hours) at argument parsing, matching the library's cap.
 - Document the late-reply timeout and its bounds.
 - Add a message to every test assertion.
