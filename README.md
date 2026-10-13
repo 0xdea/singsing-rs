@@ -62,7 +62,7 @@ cargo add singsing-rs
 Alternatively, you can build from [source](https://github.com/0xdea/singsing-rs):
 
 ```sh
-git clone https://github.com/0xdea/singsing-rs
+git clone --depth 1 https://github.com/0xdea/singsing-rs
 cd singsing-rs
 cargo build --release --locked
 ```
