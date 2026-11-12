@@ -189,10 +189,10 @@ fn write_banner() -> anyhow::Result<()> {
 
 /// Writes the program banner to the given output stream.
 fn write_banner_to(output: &mut impl Write) -> anyhow::Result<()> {
-    let description = DESCRIPTION.strip_suffix('.').unwrap_or(DESCRIPTION);
     write!(
         output,
-        "{PROGRAM} {VERSION} - {description}\nCopyright (c) 2026 {AUTHORS}\n\n"
+        "{PROGRAM} {VERSION} - {}\nCopyright (c) 2026 {AUTHORS}\n\n",
+        DESCRIPTION.trim_end_matches('.')
     )
     .context("failed to write program banner")
 }
@@ -525,7 +525,6 @@ mod tests {
 
     #[test]
     fn formats_banner_scan_and_completion_summaries() -> anyhow::Result<()> {
-        let description = DESCRIPTION.strip_suffix('.').unwrap_or(DESCRIPTION);
         let mut output = Vec::new();
         write_banner_to(&mut output)?;
         write_scan_summary_to(&mut output, 3, "eth0", "192.168.2.1".parse()?)?;
@@ -534,9 +533,10 @@ mod tests {
         assert_eq!(
             String::from_utf8(output)?,
             format!(
-                "{PROGRAM} {VERSION} - {description}\nCopyright (c) 2026 {AUTHORS}\n\n\
+                "{PROGRAM} {VERSION} - {}\nCopyright (c) 2026 {AUTHORS}\n\n\
                 Scanning: 3 host/port pairs via eth0 (192.168.2.1)...\n\n\
-                Done: 3 host/port pairs scanned in 30.1 seconds\n"
+                Done: 3 host/port pairs scanned in 30.1 seconds\n",
+                DESCRIPTION.trim_end_matches('.')
             ),
             "banner, scan summary, and done summary output"
         );
