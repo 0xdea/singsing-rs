@@ -1353,7 +1353,6 @@ fn describe_panic_payload(payload: &(dyn Any + Send)) -> &str {
 
 #[cfg(test)]
 #[expect(clippy::panic_in_result_fn, reason = "panics are allowed in test code")]
-#[expect(clippy::unwrap_used, reason = "tests can use `unwrap`")]
 mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::AtomicUsize;

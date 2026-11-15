@@ -344,7 +344,6 @@ where
 
 #[cfg(test)]
 #[expect(clippy::panic_in_result_fn, reason = "panics are allowed in test code")]
-#[expect(clippy::unwrap_used, reason = "tests can use `unwrap`")]
 mod tests {
     use clap::CommandFactory as _;
 
