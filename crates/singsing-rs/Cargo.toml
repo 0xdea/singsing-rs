@@ -7,6 +7,7 @@ authors.workspace = true
 edition.workspace = true
 homepage.workspace = true
 repository.workspace = true
+documentation = "https://docs.rs/singsing-rs"
 license.workspace = true
 keywords.workspace = true
 exclude.workspace = true
