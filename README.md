@@ -4,7 +4,7 @@
 [![](https://img.shields.io/crates/v/singsing-rs?style=flat&color=green&label=singsing-rs)](https://crates.io/crates/singsing-rs)
 [![](https://img.shields.io/crates/v/zucchini-scanner?style=flat&color=red&label=zucchini-scanner)](https://crates.io/crates/zucchini-scanner)
 [![](https://img.shields.io/badge/mastodon-%40raptor-blue.svg)](https://infosec.exchange/@raptor)
-[![build](https://github.com/0xdea/singsing-rs/actions/workflows/build.yml/badge.svg)](https://github.com/0xdea/singsing-rs/actions/workflows/build.yml)
+[![build](https://img.shields.io/github/actions/workflow/status/0xdea/singsing-rs/build.yml?label=build)](https://github.com/0xdea/singsing-rs/actions/workflows/build.yml)
 [![doc](https://img.shields.io/docsrs/singsing-rs)](https://docs.rs/singsing-rs)
 
 > "Then, we got a modem."
